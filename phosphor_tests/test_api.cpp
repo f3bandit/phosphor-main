@@ -51,6 +51,15 @@ int main() {
 	CHECK(g_screen_req == 0, "owner gone -> screen back to Main");
 	CHECK(phosphor_filter_key(KEY_F12) == KEY_F12, "and Main's menu works again");
 	CHECK(phosphor_start() == 1 && strstr(got(b), "\"event\":\"show\""), "Launch Phosphor while the shell gave the screen back -> show event");
+	{
+		// a client that dies before Main notices EOF: the failed send must give back the screen too
+		int z = conn(); say(z, "screen phosphor"); got(z); say(z, "subscribe"); got(z);
+		CHECK(phosphor_filter_key(KEY_UP) == 0, "dying client owns the screen");
+		close(z);
+		phosphor_filter_key(KEY_F12); phosphor_filter_key(KEY_F12 | UPSTROKE);   // event to a closed socket
+		for (int i = 0; i < 5; i++) phosphor_poll();
+		CHECK(phosphor_filter_key(KEY_UP) == KEY_UP, "send failure -> screen back to Main");
+	}
 	say(b, "screen phosphor"); CHECK(strstr(got(b), "\"ok\":true"), "another client can take it now");
 	char big[3000]; memset(big, 'x', sizeof big - 1); big[sizeof big - 1] = 0; write(b, big, strlen(big)); got(b);
 	int c = conn(); say(c, "status"); const char *st = got(c); printf("status after long line: %s\n", st); CHECK(strstr(st, "\"owner\":\"main\""), "line too long -> client dropped, screen back");

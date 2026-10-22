@@ -113,6 +113,8 @@ static void ph_init(void)
 	printf("phosphor: API on %s\n", sock_path());
 }
 
+static void drop(int i);
+
 static void send_line(int i, const char *s)
 {
 	if (cl[i].fd < 0) return;
@@ -121,8 +123,7 @@ static void send_line(int i, const char *s)
 	if (send(cl[i].fd, s, n, MSG_NOSIGNAL | MSG_DONTWAIT) != (ssize_t)n || send(cl[i].fd, "\n", 1, MSG_NOSIGNAL | MSG_DONTWAIT) != 1)
 	{
 		printf("phosphor: client %d not reading, dropped\n", i);
-		close(cl[i].fd);
-		cl[i].fd = -1;
+		drop(i);     // gives back what it owned (screen, front ports, card operation)
 	}
 }
 
