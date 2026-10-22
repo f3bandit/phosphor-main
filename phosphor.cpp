@@ -13,6 +13,8 @@
 //   (Main's OSD list also has "Launch Phosphor", under Video processing: phosphor_start)
 //   subscribe              this connection also gets events:
 //                          {"event":"core","name":"SNES"} {"event":"menu_button"} {"event":"osd","open":true}
+//                          {"event":"show"}: Launch Phosphor was chosen in Main's menu while the shell
+//                          had given the screen back (the shell takes it again)
 //
 // The front ports (PlayStation controllers and memory cards over SNAC), with the Phosphor menu core
 // (phosphor-menu) loaded; the stock menu core doesn't have them ("available":false):
@@ -483,6 +485,15 @@ int phosphor_installed(void)
 
 int phosphor_start(void)
 {
+	// the shell is running but gave the screen to Main's menu ("MiSTer menu" in Phosphor): ask it back
+	if (owner < 0 && is_menu())
+	{
+		for (int i = 0; i < PH_MAX; i++) if (cl[i].fd >= 0 && cl[i].subscribed)
+		{
+			event_all("{\"event\":\"show\"}");
+			return 1;
+		}
+	}
 	if (!phosphor_installed()) return 0;
 	if (owner >= 0)
 	{
