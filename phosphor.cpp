@@ -152,8 +152,9 @@ static int ext_present(void)
 	if (!is_menu()) return 0;
 	if (ext_ver < 0)
 	{
-		spi_uio_cmd_cont(PH_ID);
-		uint16_t id = spi_w(0);
+		// the core's answer to a word comes back with that same word (as with hps_io's own commands,
+		// e.g. UIO_GET_SDSTAT): the command word itself returns the first reply word
+		uint16_t id = spi_uio_cmd_cont(PH_ID);
 		uint16_t ver = spi_w(0);
 		DisableIO();
 		ext_ver = (id == 0x5048 && ver) ? ver : 0;
@@ -180,8 +181,8 @@ static const char *card_error(int r)
 static void pads_reply(int i)
 {
 	uint16_t w[9];
-	spi_uio_cmd_cont(PH_PADS);
-	for (int k = 0; k < 9; k++) w[k] = spi_w(0);
+	w[0] = spi_uio_cmd_cont(PH_PADS);
+	for (int k = 1; k < 9; k++) w[k] = spi_w(0);
 	DisableIO();
 	if (ports_client >= 0 && !(w[0] & 1)) ports_set(ports_client, 1);   // the menu core was reloaded
 	char out[512];
@@ -248,8 +249,7 @@ static void card_poll(void)
 		send_line(i, "{\"ok\":false,\"error\":\"front ports not available\"}");
 		return;
 	}
-	spi_uio_cmd_cont(PH_CARD_STATUS);
-	uint16_t st = spi_w(0);
+	uint16_t st = spi_uio_cmd_cont(PH_CARD_STATUS);
 	if (st & 0x8000)
 	{
 		DisableIO();
