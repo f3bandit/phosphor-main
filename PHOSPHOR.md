@@ -28,6 +28,13 @@ processing, when Phosphor is installed. In the menu it starts the shell (or brin
 game it loads the menu core and the shell takes the screen. Quitting the shell brings MiSTer's
 menu back.
 
+### The menu core
+
+When the Phosphor menu core is installed (`/media/fat/phosphor/cores/menu_phosphor.rbf`), Main loads it
+wherever it would load `menu.rbf` (leaving a game, Reboot). It's MiSTer's menu core plus the front ports,
+which stay off until Phosphor asks. `menu.rbf` itself is never touched; remove that file and the stock
+one loads again.
+
 ### Front ports
 
 With the Phosphor menu core ([phosphor-menu](https://github.com/f3bandit/phosphor-menu)) loaded, Main

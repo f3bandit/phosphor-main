@@ -16,6 +16,8 @@ uint32_t phosphor_filter_key(uint32_t c);
 // "Launch Phosphor" in the OSD: installed (its phosphor.sh is there), and start it or go back to it
 // (the shell takes the screen through this API; from a game the menu core loads first); 1 done
 int phosphor_installed(void);
+// the Phosphor menu core (phosphor-menu) when installed: loaded wherever Main loads menu.rbf; else NULL
+const char *phosphor_menu_core(void);
 int phosphor_start(void);
 
 #endif
