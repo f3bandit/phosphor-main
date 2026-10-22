@@ -12,7 +12,23 @@
 //   launch <path>          load a core (.rbf) or a .mgl/.mra, like MiSTer_cmd load_core (under /media only)
 //   subscribe              this connection also gets events:
 //                          {"event":"core","name":"SNES"} {"event":"menu_button"} {"event":"osd","open":true}
-// Nothing here talks to the FPGA directly: it uses Main's own functions, from Main's UI loop.
+//
+// The front ports (PlayStation controllers and memory cards over SNAC), with the Phosphor menu core
+// (phosphor-menu) loaded; the stock menu core doesn't have them ("available":false):
+//   ports                  {"ok":true,"available":true,"on":false}
+//   ports on|off           the user port goes to the front ports (MT32-pi / MIDI off) or back. On
+//                          belongs to this connection: if it closes, the ports go off again.
+//   pads                   {"ok":true,"pads":[{"port":1,"connected":true,"id":115,"buttons":16,
+//                          "rx":128,"ry":128,"lx":128,"ly":128},...]}   id 65 digital, 115 analog;
+//                          buttons pressed = 1: bit 0 Select, L3, R3, Start, Up, Right, Down, Left,
+//                          L2, R2, L1, R1, Triangle, Circle, Cross, bit 15 Square
+//   pad_analog 1|2         switch that port's DualShock to analog (it answers right away)
+//   card_read P S          sector S (0..1023) of the card in port P: {"ok":true,"data":"<256 hex>"}
+//   card_write P S HEX     write 128 bytes (256 hex digits) to sector S: {"ok":true}
+//                          errors: "no card", "bad reply", "out of range", "timeout", "busy"
+//                          (one card operation at a time; the reply comes when it's done)
+// Apart from those commands nothing here talks to the FPGA directly: it uses Main's own
+// functions, from Main's UI loop.
 #include "phosphor.h"
 #include "menu.h"
 #include "user_io.h"
@@ -21,6 +37,7 @@
 #include "file_io.h"
 #include "input.h"
 #include "hardware.h"
+#include "spi.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -55,6 +72,19 @@ static char last_core[64];
 static int last_osd = -1;
 static unsigned long f12_down;   // when the menu button went down (sheet), 0: not held
 static int inited;
+
+// the front ports (phosphor-menu's extension on EXT_BUS)
+#define PH_ID          0x80
+#define PH_MODE        0x81
+#define PH_PADS        0x82
+#define PH_CARD        0x83
+#define PH_CARD_STATUS 0x84
+#define PH_PAD_CMD     0x85
+#define PH_CARD_TIMEOUT_MS 500
+static int ext_ver = -1;         // -1 not asked yet (for this core), 0 none, >0 the extension's version
+static int ports_client = -1;    // the client that turned the front ports on
+static struct { int client, write; unsigned long start, next; } card_op = { -1, 0, 0, 0 };
+static struct { int port, step; unsigned long next; } pad_seq = { 0, 0, 0 };
 
 static const char *sock_path(void)
 {
@@ -110,6 +140,158 @@ static void event_all(const char *s)
 	for (int i = 0; i < PH_MAX; i++) if (cl[i].fd >= 0 && cl[i].subscribed) send_line(i, s);
 }
 
+static int ext_present(void)
+{
+	if (!is_menu()) return 0;
+	if (ext_ver < 0)
+	{
+		spi_uio_cmd_cont(PH_ID);
+		uint16_t id = spi_w(0);
+		uint16_t ver = spi_w(0);
+		DisableIO();
+		ext_ver = (id == 0x5048 && ver) ? ver : 0;
+		printf("phosphor: front ports %s\n", ext_ver ? "available" : "not in this menu core");
+	}
+	return ext_ver > 0;
+}
+
+static void ports_set(int client, int on)
+{
+	ports_client = on ? client : -1;
+	if (!on) { pad_seq.step = 0; }
+	if (!ext_present()) return;
+	spi_uio_cmd_cont(PH_MODE);
+	spi_w(on ? 1 : 0);
+	DisableIO();
+}
+
+static const char *card_error(int r)
+{
+	return r == 1 ? "no card" : r == 3 ? "out of range" : "bad reply";
+}
+
+static void pads_reply(int i)
+{
+	uint16_t w[9];
+	spi_uio_cmd_cont(PH_PADS);
+	for (int k = 0; k < 9; k++) w[k] = spi_w(0);
+	DisableIO();
+	if (ports_client >= 0 && !(w[0] & 1)) ports_set(ports_client, 1);   // the menu core was reloaded
+	char out[512];
+	size_t n = snprintf(out, sizeof(out), "{\"ok\":true,\"on\":%s,\"pads\":[", (w[0] & 1) ? "true" : "false");
+	for (int p = 0; p < 2; p++)
+	{
+		uint16_t *q = w + 1 + p * 4;
+		int conn = (w[0] & 1) && (q[0] & 0x100);
+		n += snprintf(out + n, sizeof(out) - n, "%s{\"port\":%d,\"connected\":%s,\"id\":%d,\"buttons\":%d,\"rx\":%d,\"ry\":%d,\"lx\":%d,\"ly\":%d}",
+			p ? "," : "", p + 1, conn ? "true" : "false", conn ? (q[0] & 0xFF) : 0, conn ? (uint16_t)~q[1] : 0,
+			q[2] & 0xFF, q[2] >> 8, q[3] & 0xFF, q[3] >> 8);
+	}
+	snprintf(out + n, sizeof(out) - n, "]}");
+	send_line(i, out);
+}
+
+static int hexval(char c)
+{
+	return (c >= '0' && c <= '9') ? c - '0' : (c >= 'a' && c <= 'f') ? c - 'a' + 10 : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : -1;
+}
+
+// "card_read P S" / "card_write P S HEX": starts the operation; card_poll() replies when it's done
+static void card_command(int i, char *args, int write)
+{
+	if (!ext_present()) { send_line(i, "{\"ok\":false,\"error\":\"front ports not available\"}"); return; }
+	if (ports_client < 0) { send_line(i, "{\"ok\":false,\"error\":\"front ports are off\"}"); return; }
+	if (card_op.client >= 0) { send_line(i, "{\"ok\":false,\"error\":\"busy\"}"); return; }
+	char *end;
+	long port = strtol(args, &end, 10);
+	if (end == args || (port != 1 && port != 2)) { send_line(i, "{\"ok\":false,\"error\":\"port is 1 or 2\"}"); return; }
+	args = end;
+	long sec = strtol(args, &end, 10);
+	if (end == args || sec < 0 || sec > 1023) { send_line(i, "{\"ok\":false,\"error\":\"sector is 0..1023\"}"); return; }
+	uint16_t data[64] = {};
+	if (write)
+	{
+		while (*end == ' ') end++;
+		if (strlen(end) != 256) { send_line(i, "{\"ok\":false,\"error\":\"data is 256 hex digits\"}"); return; }
+		for (int k = 0; k < 128; k++)
+		{
+			int h = hexval(end[2 * k]), l = hexval(end[2 * k + 1]);
+			if (h < 0 || l < 0) { send_line(i, "{\"ok\":false,\"error\":\"data is 256 hex digits\"}"); return; }
+			data[k / 2] |= (uint16_t)((h << 4 | l) << ((k & 1) * 8));
+		}
+	}
+	spi_uio_cmd_cont(PH_CARD);
+	spi_w((port == 2 ? 0x100 : 0) | (write ? 1 : 0));
+	spi_w((uint16_t)sec);
+	if (write) for (int k = 0; k < 64; k++) spi_w(data[k]);
+	DisableIO();
+	card_op.client = i;
+	card_op.write = write;
+	card_op.start = GetTimer(0);
+	card_op.next = GetTimer(5);     // a read takes about 5 ms on the bus
+}
+
+static void card_poll(void)
+{
+	if (card_op.client < 0 || GetTimer(0) < card_op.next) return;
+	int i = card_op.client;
+	if (!ext_present())   // another core was loaded
+	{
+		card_op.client = -1;
+		send_line(i, "{\"ok\":false,\"error\":\"front ports not available\"}");
+		return;
+	}
+	spi_uio_cmd_cont(PH_CARD_STATUS);
+	uint16_t st = spi_w(0);
+	if (st & 0x8000)
+	{
+		DisableIO();
+		card_op.next = GetTimer(2);
+		if (GetTimer(0) - card_op.start > PH_CARD_TIMEOUT_MS)
+		{
+			card_op.client = -1;
+			send_line(i, "{\"ok\":false,\"error\":\"timeout\"}");
+		}
+		return;
+	}
+	card_op.client = -1;
+	if (!(st & 0x4000)) { DisableIO(); send_line(i, "{\"ok\":false,\"error\":\"timeout\"}"); return; }
+	if (st & 3)
+	{
+		DisableIO();
+		char out[96];
+		snprintf(out, sizeof(out), "{\"ok\":false,\"error\":\"%s\"}", card_error(st & 3));
+		send_line(i, out);
+		return;
+	}
+	if (card_op.write) { DisableIO(); send_line(i, "{\"ok\":true}"); return; }
+	char out[300] = "{\"ok\":true,\"data\":\"";
+	size_t n = strlen(out);
+	static const char hx[] = "0123456789abcdef";
+	for (int k = 0; k < 64; k++)
+	{
+		uint16_t w = spi_w(0);
+		uint8_t b0 = w & 0xFF, b1 = w >> 8;
+		out[n++] = hx[b0 >> 4]; out[n++] = hx[b0 & 15];
+		out[n++] = hx[b1 >> 4]; out[n++] = hx[b1 & 15];
+	}
+	DisableIO();
+	snprintf(out + n, sizeof(out) - n, "\"}");
+	send_line(i, out);
+}
+
+// switching a DualShock to analog: config mode, analog on, leave config, a little apart
+static void pad_seq_poll(void)
+{
+	if (!pad_seq.step || GetTimer(0) < pad_seq.next) return;
+	if (ports_client < 0 || !ext_present()) { pad_seq.step = 0; return; }
+	spi_uio_cmd_cont(PH_PAD_CMD);
+	spi_w((pad_seq.port == 2 ? 0x100 : 0) | pad_seq.step);
+	DisableIO();
+	pad_seq.step = pad_seq.step == 3 ? 0 : pad_seq.step + 1;
+	pad_seq.next = GetTimer(20);
+}
+
 static void give_back(void)
 {
 	if (owner < 0) return;
@@ -124,6 +306,8 @@ static void drop(int i)
 	cl[i].fd = -1;
 	if (owner == i) give_back();      // the shell went away: Main's menu comes back
 	if (sheet_client == i) sheet_client = -1;
+	if (card_op.client == i) card_op.client = -1;   // (the card finishes on its own)
+	if (ports_client == i) ports_set(-1, 0);
 }
 
 static void status_line(char *out, size_t n)
@@ -179,6 +363,35 @@ static void command(int i, char *line)
 		if (isXmlName(real)) xml_load(real);
 		else fpga_load_rbf(real);
 	}
+	else if (!strcmp(line, "ports"))
+	{
+		snprintf(out, sizeof(out), "{\"ok\":true,\"available\":%s,\"on\":%s}", ext_present() ? "true" : "false",
+			ports_client >= 0 ? "true" : "false");
+		send_line(i, out);
+	}
+	else if (!strcmp(line, "ports on") || !strcmp(line, "ports off"))
+	{
+		int on = line[7] == 'n';
+		if (!ext_present()) { send_line(i, "{\"ok\":false,\"error\":\"front ports not available\"}"); return; }
+		if (ports_client >= 0 && ports_client != i) { send_line(i, "{\"ok\":false,\"error\":\"another client has the front ports\"}"); return; }
+		ports_set(i, on);
+		send_line(i, "{\"ok\":true}");
+	}
+	else if (!strcmp(line, "pads"))
+	{
+		if (!ext_present()) { send_line(i, "{\"ok\":false,\"error\":\"front ports not available\"}"); return; }
+		pads_reply(i);
+	}
+	else if (!strcmp(line, "pad_analog 1") || !strcmp(line, "pad_analog 2"))
+	{
+		if (!ext_present() || ports_client < 0) { send_line(i, "{\"ok\":false,\"error\":\"front ports are off\"}"); return; }
+		pad_seq.port = line[11] - '0';
+		pad_seq.step = 1;
+		pad_seq.next = 0;
+		send_line(i, "{\"ok\":true}");
+	}
+	else if (!strncmp(line, "card_read ", 10)) card_command(i, line + 10, 0);
+	else if (!strncmp(line, "card_write ", 11)) card_command(i, line + 11, 1);
 	else send_line(i, "{\"ok\":false,\"error\":\"unknown command\"}");
 }
 
@@ -224,12 +437,17 @@ void phosphor_poll(void)
 	}
 	for (int i = 0; i < PH_MAX; i++) if (cl[i].fd >= 0) read_client(i);
 
+	card_poll();
+	pad_seq_poll();
+
 	// events
 	char core[64], ev[256], name[128];
 	snprintf(core, sizeof(core), "%s", user_io_get_core_name());
 	if (strcmp(core, last_core))
 	{
 		snprintf(last_core, sizeof(last_core), "%s", core);
+		ext_ver = -1;                       // another core (or the menu core again): ask again
+		if (ports_client >= 0 && !is_menu()) { ports_client = -1; pad_seq.step = 0; }
 		json_str(name, sizeof(name), core);
 		snprintf(ev, sizeof(ev), "{\"event\":\"core\",\"name\":\"%s\",\"menu\":%s}", name, is_menu() ? "true" : "false");
 		event_all(ev);

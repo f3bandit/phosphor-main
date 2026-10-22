@@ -8,13 +8,15 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <stdint.h>
 #define UPSTROKE 0x400000
 #define KEY_F12 88
 #define KEY_UP 103
 extern int g_menu, g_osd, g_fb, g_screen_req; extern char g_core[64], g_loaded[512];
+extern int g_ext, g_card_present, g_card_busy_polls, g_pad_cmds[8], g_pad_ncmd; extern uint16_t g_ext_mode; extern uint8_t g_card[];
 static int conn() { int s = socket(AF_UNIX, SOCK_STREAM, 0); struct sockaddr_un a = {}; a.sun_family = AF_UNIX; strcpy(a.sun_path, getenv("PHOSPHOR_MAIN_SOCK")); assert(!connect(s, (struct sockaddr *)&a, sizeof a)); fcntl(s, F_SETFL, O_NONBLOCK); return s; }
 static void say(int s, const char *l) { char b[600]; snprintf(b, sizeof b, "%s\n", l); write(s, b, strlen(b)); }
-static char rb[4096];
+static char rb[8192];
 static const char *got(int s) { for (int i = 0; i < 5; i++) phosphor_poll(); int n = read(s, rb, sizeof rb - 1); rb[n > 0 ? n : 0] = 0; return rb; }
 #define CHECK(c, m) do { if (!(c)) { printf("FAIL: %s\n", m); exit(1); } else printf("ok   %s\n", m); } while (0)
 int main() {
@@ -52,5 +54,44 @@ int main() {
 	char big[3000]; memset(big, 'x', sizeof big - 1); big[sizeof big - 1] = 0; write(b, big, strlen(big)); got(b);
 	int c = conn(); say(c, "status"); const char *st = got(c); printf("status after long line: %s\n", st); CHECK(strstr(st, "\"owner\":\"main\""), "line too long -> client dropped, screen back");
 	say(c, "bogus"); CHECK(strstr(got(c), "unknown command"), "unknown command");
+	// the front ports
+	{
+		int d = conn(), e = conn();
+		say(d, "ports"); CHECK(strstr(got(d), "\"available\":true,\"on\":false"), "ports: available, off");
+		say(d, "card_read 1 0"); CHECK(strstr(got(d), "front ports are off"), "card read refused while off");
+		say(d, "ports on"); CHECK(strstr(got(d), "\"ok\":true") && g_ext_mode == 1, "ports on");
+		say(e, "ports on"); CHECK(strstr(got(e), "another client"), "second client can't take the ports");
+		say(d, "pads"); const char *p = got(d); printf("%s", p);
+		CHECK(strstr(p, "{\"port\":1,\"connected\":true,\"id\":115,\"buttons\":16,\"rx\":128,\"ry\":128,\"lx\":129,\"ly\":127}"), "pads: port 1 analog, Up held");
+		CHECK(strstr(p, "{\"port\":2,\"connected\":false"), "pads: nothing in port 2");
+		for (int i = 0; i < 128; i++) g_card[5 * 128 + i] = (uint8_t)(i * 7);
+		g_card_busy_polls = 3;
+		say(d, "card_read 1 5"); usleep(5000); const char *r = got(d);
+		for (int t = 0; t < 50 && !*r; t++) { usleep(3000); r = got(d); }
+		CHECK(!strncmp(r, "{\"ok\":true,\"data\":\"00070e15", 27) && strlen(r) == 19 + 256 + 3, "card_read: data (after busy)");
+		say(d, "card_read 1 5"); say(d, "card_read 1 6"); r = got(d); CHECK(strstr(r, "busy"), "one card operation at a time");
+		for (int t = 0; t < 50 && !strstr(r, "\"data\""); t++) { usleep(3000); r = got(d); }
+		char line[400] = "card_write 1 9 ";
+		for (int i = 0; i < 128; i++) sprintf(line + strlen(line), "%02x", 255 - i);
+		say(d, line); usleep(6000); r = got(d);
+		for (int t = 0; t < 50 && !*r; t++) { usleep(3000); r = got(d); }
+		CHECK(strstr(r, "\"ok\":true") && g_card[9 * 128] == 255 && g_card[9 * 128 + 127] == 128, "card_write: on the card");
+		say(d, "card_write 1 9 zz"); CHECK(strstr(got(d), "256 hex"), "card_write: bad data refused");
+		say(d, "card_read 3 0"); CHECK(strstr(got(d), "port is 1 or 2"), "bad port refused");
+		say(d, "card_read 1 1024"); CHECK(strstr(got(d), "0..1023"), "bad sector refused");
+		say(d, "card_read 2 0"); usleep(6000); r = got(d);
+		for (int t = 0; t < 50 && !*r; t++) { usleep(3000); r = got(d); }
+		CHECK(strstr(r, "no card"), "no card in port 2");
+		say(d, "pad_analog 2"); got(d);
+		for (int t = 0; t < 20 && g_pad_ncmd < 3; t++) { usleep(25000); got(d); }
+		CHECK(g_pad_ncmd == 3 && g_pad_cmds[0] == 0x101 && g_pad_cmds[1] == 0x102 && g_pad_cmds[2] == 0x103, "pad_analog: config, analog, leave");
+		g_ext_mode = 0; say(d, "pads"); got(d); CHECK(g_ext_mode == 1, "menu core reloaded: ports back on");
+		close(d); got(e); CHECK(g_ext_mode == 0, "owner gone -> ports off");
+		g_ext = 0; strcpy(g_core, "MENU2"); got(e); strcpy(g_core, "MENU"); got(e);
+		say(e, "ports"); CHECK(strstr(got(e), "\"available\":false"), "stock menu core: not available");
+		say(e, "ports on"); CHECK(strstr(got(e), "not available"), "stock menu core: ports on refused");
+		g_ext = 1;
+		close(e);
+	}
 	printf("ALL PASSED\n");
 }
