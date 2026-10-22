@@ -13,4 +13,9 @@ void phosphor_poll(void);
 // with the in-game sheet on, a short menu-button press goes to Phosphor and a long one opens the OSD.
 uint32_t phosphor_filter_key(uint32_t c);
 
+// System Settings > Phosphor: installed (its phosphor.sh is there), and start it (the shell then
+// takes the screen through this API); 1 started
+int phosphor_installed(void);
+int phosphor_start(void);
+
 #endif

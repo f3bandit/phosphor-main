@@ -69,6 +69,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "profiling.h"
 #include "str_util.h"
 #include "autofire.h"
+#include "phosphor.h"
 
 /*menu states*/
 enum MENU
@@ -615,7 +616,7 @@ static uint32_t menu_key_get(void)
 		else if (CheckTimer(repeat))
 		{
 			repeat = GetTimer(REPEATRATE);
-			if (GetASCIIKey(c1) || menustate == MENU_FILE_SELECT2 || ((menustate == MENU_COMMON2) && (menusub == 17)) || ((menustate == MENU_SYSTEM2) && (menusub == 5)))
+			if (GetASCIIKey(c1) || menustate == MENU_FILE_SELECT2 || ((menustate == MENU_COMMON2) && (menusub == 17)) || ((menustate == MENU_SYSTEM2) && (menusub == 6)))
 			{
 				c = c1;
 				hold_cnt++;
@@ -7418,7 +7419,7 @@ void HandleUI(void)
 
 		m = 0;
 		OsdSetTitle("System Settings", OSD_ARROW_LEFT);
-		menumask = 0x7F;
+		menumask = phosphor_installed() ? 0xFF : 0xDF;
 
 		OsdWrite(m++);
 		sprintf(s, "       MiSTer v%s", version + 5);
@@ -7471,15 +7472,16 @@ void HandleUI(void)
 		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 2);
 		OsdWrite(m++, " Scripts                   \x16", menusub == 3);
 		OsdWrite(m++, " Help                      \x16", menusub == 4);
+		OsdWrite(m++, " Phosphor                  \x16", menusub == 5, !phosphor_installed());
 		OsdWrite(m++, "");
 		cr = m;
-		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 5);
+		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 6);
 		sysinfo_timer = 0;
 
 		reboot_req = 0;
 
 		while(m < OsdGetSize()-1) OsdWrite(m++, "");
-		OsdWrite(15, STD_EXIT, menusub == 6);
+		OsdWrite(15, STD_EXIT, menusub == 7);
 		menustate = MENU_SYSTEM2;
 		break;
 
@@ -7541,6 +7543,10 @@ void HandleUI(void)
 				break;
 
 			case 5:
+				if (phosphor_start()) menustate = MENU_NONE1;
+				break;
+
+			case 6:
 				{
 					reboot_req = 1;
 
@@ -7553,7 +7559,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 6:
+			case 7:
 				menustate = MENU_NONE1;
 				break;
 			}
