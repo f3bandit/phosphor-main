@@ -1,4 +1,5 @@
 #include "scheduler.h"
+#include "phosphor.h"
 #include <stdio.h>
 #include "libco.h"
 #include "menu.h"
@@ -49,6 +50,7 @@ static void scheduler_co_ui(void)
 			SPIKE_SCOPE("co_ui", 1000);
 			HandleUI();
 			OsdUpdate();
+			phosphor_poll();                   // Phosphor: local API (phosphor.cpp)
 		}
 
 		scheduler_yield();

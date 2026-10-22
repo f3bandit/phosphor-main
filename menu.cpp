@@ -49,6 +49,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "file_io.h"
 #include "osd.h"
 #include "hardware.h"
+#include "phosphor.h"
 #include "menu.h"
 #include "user_io.h"
 #include "debug.h"
@@ -1114,6 +1115,14 @@ static void *close_pipe_async(void *arg)
 	return NULL;
 }
 
+// Phosphor: show the Linux framebuffer (the Phosphor shell) in the menu core, or give the screen
+// back to Main's own menu. The same steps as F9, and as the menu button when leaving the framebuffer.
+static int phosphor_fb_req = -1;
+void menu_phosphor_screen(int phosphor)
+{
+	phosphor_fb_req = phosphor;        // done in HandleUI, where the menu state lives
+}
+
 void HandleUI(void)
 {
 	PROFILE_FUNCTION();
@@ -1283,8 +1292,8 @@ void HandleUI(void)
 	}
 	else
 	{
-		// get user control codes
-		c = menu_key_get();
+		// get user control codes (Phosphor: may swallow them while its shell has the screen)
+		c = phosphor_filter_key(menu_key_get());
 	}
 
 	// decode and set events
@@ -1362,6 +1371,28 @@ void HandleUI(void)
 		{
 			timeout = 0;
 			menu_visible = 1;
+		}
+	}
+
+	// Phosphor: take or give back the screen (requested from phosphor.cpp), the way F9 does
+	if (phosphor_fb_req >= 0)
+	{
+		int on = phosphor_fb_req;
+		phosphor_fb_req = -1;
+		if (on && is_menu())
+		{
+			if (!video_fb_state())
+			{
+				video_chvt(1);
+				video_fb_enable(1);
+			}
+			menustate = MENU_NONE1;
+			has_fb_terminal = 1;
+		}
+		else if (!on && video_fb_state())
+		{
+			video_menu_bg(user_io_status_get("[3:1]"));
+			video_fb_enable(0);
 		}
 	}
 

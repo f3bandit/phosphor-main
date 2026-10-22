@@ -31,6 +31,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "input.h"
 #include "frame_timer.h"
 #include "fpga_io.h"
+#include "phosphor.h"
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
@@ -88,6 +89,7 @@ int main(int argc, char *argv[])
 		input_poll(0);
 		HandleUI();
 		OsdUpdate();
+		phosphor_poll();                       // Phosphor: local API (phosphor.cpp)
 	}
 #endif
 	return 0;
