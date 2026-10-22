@@ -10,7 +10,7 @@
 //   sheet on|off           in a game, a short menu-button press goes to Phosphor (event), a long one
 //                          (0.7 s) opens the OSD as usual; off: the OSD as usual
 //   launch <path>          load a core (.rbf) or a .mgl/.mra, like MiSTer_cmd load_core (under /media only)
-//   (Main's System Settings menu also has "Phosphor", which starts it: phosphor_start)
+//   (Main's OSD list also has "Launch Phosphor", under Video processing: phosphor_start)
 //   subscribe              this connection also gets events:
 //                          {"event":"core","name":"SNES"} {"event":"menu_button"} {"event":"osd","open":true}
 //
@@ -476,8 +476,16 @@ int phosphor_installed(void)
 int phosphor_start(void)
 {
 	if (!phosphor_installed()) return 0;
-	if (owner >= 0) { if (is_menu()) menu_phosphor_screen(1); return 1; }   // it's running and has the screen
-	printf("phosphor: starting %s\n", PH_SCRIPT);
+	if (owner >= 0)
+	{
+		// the shell is running: in the menu it takes the screen again, from a game the menu core loads
+		// and it takes the screen when Main has restarted
+		if (is_menu()) menu_phosphor_screen(1);
+		else fpga_load_rbf("menu.rbf");
+		return 1;
+	}
+	int from_game = !is_menu();
+	printf("phosphor: starting %s%s\n", PH_SCRIPT, from_game ? " (after loading the menu core)" : "");
 	pid_t pid = fork();
 	if (pid < 0) return 0;
 	if (pid == 0)
@@ -488,10 +496,12 @@ int phosphor_start(void)
 		int nul = open("/dev/null", O_RDWR);
 		if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); dup2(nul, 2); if (nul > 2) close(nul); }
 		for (int fd = 3; fd < 256; fd++) close(fd);
+		if (from_game) sleep(4);    // the menu core loads and Main restarts first
 		execl("/bin/sh", "sh", PH_SCRIPT, "start", (char *)NULL);
 		_exit(127);
 	}
 	waitpid(pid, NULL, 0);
+	if (from_game) fpga_load_rbf("menu.rbf");
 	return 1;
 }
 

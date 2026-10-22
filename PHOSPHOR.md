@@ -21,11 +21,12 @@ Unix socket `/tmp/phosphor-main.sock` (root only), one command per line, one JSO
 | `launch <path>` | Load a core (.rbf) or .mgl/.mra, like `load_core` on `/dev/MiSTer_cmd` (files under /media only) |
 | `subscribe` | Also get events: `{"event":"core","name":"SNES","menu":false}`, `{"event":"menu_button"}`, `{"event":"osd","open":true}` |
 
-### Starting Phosphor from MiSTer's menu
+### Launch Phosphor
 
-System Settings (the OSD page with Scripts and Help) has a **Phosphor** line. It starts
-`/media/fat/phosphor/phosphor.sh start`; the shell then takes the screen through the API. Greyed out
-when Phosphor isn't installed. Quitting the shell brings MiSTer's menu back.
+MiSTer's OSD list (Core, Define buttons, Video processing, ...) has **Launch Phosphor** under Video
+processing, when Phosphor is installed. In the menu it starts the shell (or brings it back); in a
+game it loads the menu core and the shell takes the screen. Quitting the shell brings MiSTer's
+menu back.
 
 ### Front ports
 

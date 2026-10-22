@@ -69,7 +69,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "profiling.h"
 #include "str_util.h"
 #include "autofire.h"
-#include "phosphor.h"
 
 /*menu states*/
 enum MENU
@@ -616,7 +615,7 @@ static uint32_t menu_key_get(void)
 		else if (CheckTimer(repeat))
 		{
 			repeat = GetTimer(REPEATRATE);
-			if (GetASCIIKey(c1) || menustate == MENU_FILE_SELECT2 || ((menustate == MENU_COMMON2) && (menusub == 17)) || ((menustate == MENU_SYSTEM2) && (menusub == 6)))
+			if (GetASCIIKey(c1) || menustate == MENU_FILE_SELECT2 || ((menustate == MENU_COMMON2) && (menusub == 17)) || ((menustate == MENU_SYSTEM2) && (menusub == 5)))
 			{
 				c = c1;
 				hold_cnt++;
@@ -2990,6 +2989,13 @@ void HandleUI(void)
 				MenuWrite(n++);
 				MenuWrite(n++, " Video processing          \x16", menusub==6);
 
+				if (phosphor_installed())       // Phosphor: back to (or start) the Phosphor shell
+				{
+					menumask |= 0x80;
+					MenuWrite(n++);
+					MenuWrite(n++, " Launch Phosphor", menusub == 7);
+				}
+
 				if (audio_filter_en() >= 0)
 				{
 					MenuWrite(n++);
@@ -3063,6 +3069,10 @@ void HandleUI(void)
 			case 1:
 				osd_unlocked = 0;
 				menustate = MENU_NONE1;
+				break;
+
+			case 7:
+				if (phosphor_start()) menustate = MENU_NONE1;
 				break;
 
 			case 2:
@@ -7419,7 +7429,7 @@ void HandleUI(void)
 
 		m = 0;
 		OsdSetTitle("System Settings", OSD_ARROW_LEFT);
-		menumask = phosphor_installed() ? 0xFF : 0xDF;
+		menumask = 0x7F;
 
 		OsdWrite(m++);
 		sprintf(s, "       MiSTer v%s", version + 5);
@@ -7472,16 +7482,15 @@ void HandleUI(void)
 		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 2);
 		OsdWrite(m++, " Scripts                   \x16", menusub == 3);
 		OsdWrite(m++, " Help                      \x16", menusub == 4);
-		OsdWrite(m++, " Phosphor                  \x16", menusub == 5, !phosphor_installed());
 		OsdWrite(m++, "");
 		cr = m;
-		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 6);
+		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 5);
 		sysinfo_timer = 0;
 
 		reboot_req = 0;
 
 		while(m < OsdGetSize()-1) OsdWrite(m++, "");
-		OsdWrite(15, STD_EXIT, menusub == 7);
+		OsdWrite(15, STD_EXIT, menusub == 6);
 		menustate = MENU_SYSTEM2;
 		break;
 
@@ -7543,10 +7552,6 @@ void HandleUI(void)
 				break;
 
 			case 5:
-				if (phosphor_start()) menustate = MENU_NONE1;
-				break;
-
-			case 6:
 				{
 					reboot_req = 1;
 
@@ -7559,7 +7564,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 7:
+			case 6:
 				menustate = MENU_NONE1;
 				break;
 			}
