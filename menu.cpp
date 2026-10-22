@@ -1670,7 +1670,7 @@ void HandleUI(void)
 			menustate = MENU_UNLOCK1;
 			osd_code_entry[0] = 0;
 		}
-		else if (menu || (is_menu() && !video_fb_state()) || (menustate == MENU_NONE2 && !mgl->done && mgl->state == 1))
+		else if (menu || (is_menu() && !video_fb_state() && !phosphor_hold_menu()) || (menustate == MENU_NONE2 && !mgl->done && mgl->state == 1))
 		{
 			OsdSetSize(16);
 			menusub = 0;
