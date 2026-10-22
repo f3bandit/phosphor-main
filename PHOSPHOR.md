@@ -21,10 +21,29 @@ Unix socket `/tmp/phosphor-main.sock` (root only), one command per line, one JSO
 | `launch <path>` | Load a core (.rbf) or .mgl/.mra, like `load_core` on `/dev/MiSTer_cmd` (files under /media only) |
 | `subscribe` | Also get events: `{"event":"core","name":"SNES","menu":false}`, `{"event":"menu_button"}`, `{"event":"osd","open":true}` |
 
-Nothing talks to the FPGA directly: it all goes through Main's own functions, from Main's UI loop.
+### Front ports
 
-Coming: pause and save-state slots (cores that support them), and relaying the Phosphor menu core's
-pad and memory-card access ([phosphor-menu](https://github.com/f3bandit/phosphor-menu)).
+With the Phosphor menu core ([phosphor-menu](https://github.com/f3bandit/phosphor-menu)) loaded, Main
+can read PlayStation controllers and memory cards on the SuperStation One's front ports (SNAC). With
+the stock menu core these say `"available":false`.
+
+| Command | |
+|---|---|
+| `ports` | `{"ok":true,"available":true,"on":false}` |
+| `ports on` / `ports off` | The user port goes to the front ports (MT32-pi and MIDI off) or back. It belongs to the connection: when it closes, the ports go off. |
+| `pads` | Both ports: connected, controller ID (65 digital, 115 analog), buttons (pressed = 1: bit 0 Select, L3, R3, Start, Up, Right, Down, Left, L2, R2, L1, R1, Triangle, Circle, Cross, bit 15 Square), sticks |
+| `pad_analog 1` / `pad_analog 2` | Switch that port's DualShock to analog |
+| `card_read P S` | Sector S (0–1023) of the card in port P: `{"ok":true,"data":"<256 hex digits>"}` |
+| `card_write P S HEX` | Write 128 bytes to sector S. Errors: `no card`, `bad reply`, `out of range`, `timeout`, `busy` |
+
+One card operation at a time; its reply comes when the card has answered (about 5 ms). Retries and
+backups before writing are the caller's job (phosphord).
+
+Apart from the front-port commands (phosphor-menu's commands 0x80–0x85 on hps_io's EXT_BUS, sent
+only while the menu core is loaded), nothing talks to the FPGA directly: it all goes through Main's
+own functions, from Main's UI loop.
+
+Coming: pause and save-state slots (cores that support them).
 
 ## Building
 
