@@ -50,6 +50,7 @@ int main() {
 	close(a); g_screen_req = -9; got(b);
 	CHECK(g_screen_req == 0, "owner gone -> screen back to Main");
 	CHECK(phosphor_filter_key(KEY_F12) == KEY_F12, "and Main's menu works again");
+	CHECK(phosphor_start() == 1 && strstr(got(b), "\"event\":\"show\""), "Launch Phosphor while the shell gave the screen back -> show event");
 	say(b, "screen phosphor"); CHECK(strstr(got(b), "\"ok\":true"), "another client can take it now");
 	char big[3000]; memset(big, 'x', sizeof big - 1); big[sizeof big - 1] = 0; write(b, big, strlen(big)); got(b);
 	int c = conn(); say(c, "status"); const char *st = got(c); printf("status after long line: %s\n", st); CHECK(strstr(st, "\"owner\":\"main\""), "line too long -> client dropped, screen back");
