@@ -1,3 +1,8 @@
+> **phosphor-main**: Phosphor's fork of MiSTer Main, part of [Phosphor](https://github.com/f3bandit/phosphor_os)
+> (unofficial custom firmware for the SuperStation One, built on mainline MiSTer). What it adds and how to
+> run it: [PHOSPHOR.md](PHOSPHOR.md). Everything else below is MiSTer Main's own README. GPL-3.0, like Main;
+> not made or supported by MiSTer-devel.
+
 # Main_MiSTer Main Binary and Wiki Repo
 
 This repo serves as the home for the MiSTer Main binaries and the Wiki.
