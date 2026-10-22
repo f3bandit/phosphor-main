@@ -100,7 +100,7 @@ static const char *sock_path(void)
 static void ph_init(void)
 {
 	inited = 1;
-	if (phosphor_installed()) hold_until = GetTimer(30000);
+	if (phosphor_installed()) hold_until = GetTimer(60000);
 	for (int i = 0; i < PH_MAX; i++) cl[i].fd = -1;
 	unlink(sock_path());
 	lfd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);

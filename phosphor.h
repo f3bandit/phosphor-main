@@ -21,7 +21,7 @@ const char *phosphor_menu_core(void);
 // MiSTer.ini's main= is the default ("MiSTer"): Phosphor's Main stays instead of handing over to it
 int phosphor_keep_main(const char *cfg_main);
 // while Phosphor's shell is starting (Main just started in the menu core), Main's file browser stays
-// closed instead of popping up first; 0 once the shell has the screen, gave it back, or 30 s passed
+// closed instead of popping up first; 0 once the shell has the screen, gave it back, or 60 s passed
 int phosphor_hold_menu(void);
 int phosphor_start(void);
 
