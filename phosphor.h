@@ -18,6 +18,8 @@ uint32_t phosphor_filter_key(uint32_t c);
 int phosphor_installed(void);
 // the Phosphor menu core (phosphor-menu) when installed: loaded wherever Main loads menu.rbf; else NULL
 const char *phosphor_menu_core(void);
+// MiSTer.ini's main= is the default ("MiSTer"): Phosphor's Main stays instead of handing over to it
+int phosphor_keep_main(const char *cfg_main);
 int phosphor_start(void);
 
 #endif

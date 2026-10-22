@@ -479,6 +479,11 @@ const char *phosphor_menu_core(void)
 	return (!stat(p, &st) && S_ISREG(st.st_mode) && st.st_size > 1000000) ? p : NULL;
 }
 
+int phosphor_keep_main(const char *cfg_main)
+{
+	return !cfg_main || !*cfg_main || !strcasecmp(cfg_main, "MiSTer") || !strcasecmp(cfg_main, "/media/fat/MiSTer");
+}
+
 int phosphor_installed(void)
 {
 	return access(PH_SCRIPT, R_OK) == 0;

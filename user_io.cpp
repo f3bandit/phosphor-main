@@ -13,6 +13,7 @@
 #include "hardware.h"
 #include "osd.h"
 #include "user_io.h"
+#include "phosphor.h"
 #include "debug.h"
 #include "spi.h"
 #include "cfg.h"
@@ -1559,7 +1560,9 @@ void user_io_init(const char *path, const char *xml)
 	}
 
 	const char *main = getFullPath(cfg.main);
-	if (strcasecmp(main, getappname()) && FileExists(main))
+	// Phosphor: MiSTer.ini's default main=MiSTer means "the usual Main", and Phosphor's Main is that
+	// here: stay. A main= set on purpose (a core that needs another Main) is still followed.
+	if (strcasecmp(main, getappname()) && FileExists(main) && !phosphor_keep_main(cfg.main))
 	{
 		printf("Current exec is %s, core requires exec %s\n", getappname(), main);
 		app_restart(path, xml, main);
