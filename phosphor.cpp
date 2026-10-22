@@ -76,6 +76,7 @@ static char last_core[64];
 static int last_osd = -1;
 static unsigned long f12_down;   // when the menu button went down (sheet), 0: not held
 static int inited;
+static unsigned long hold_until;   // Main's file browser waits for the shell until then (0: no wait)
 
 // the front ports (phosphor-menu's extension on EXT_BUS)
 #define PH_ID          0x80
@@ -99,6 +100,7 @@ static const char *sock_path(void)
 static void ph_init(void)
 {
 	inited = 1;
+	if (phosphor_installed()) hold_until = GetTimer(30000);
 	for (int i = 0; i < PH_MAX; i++) cl[i].fd = -1;
 	unlink(sock_path());
 	lfd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
@@ -344,11 +346,13 @@ static void command(int i, char *line)
 	{
 		if (owner >= 0 && owner != i) { send_line(i, "{\"ok\":false,\"error\":\"another client has the screen\"}"); return; }
 		owner = i;
+		hold_until = 0;
 		if (is_menu()) menu_phosphor_screen(1);
 		send_line(i, "{\"ok\":true}");
 	}
 	else if (!strcmp(line, "screen main"))
 	{
+		hold_until = 0;
 		if (owner == i) give_back();
 		send_line(i, "{\"ok\":true}");
 	}
@@ -477,6 +481,14 @@ const char *phosphor_menu_core(void)
 	struct stat st;
 	// a whole core is a few MB; anything else (a failed copy) is ignored and the stock one loads
 	return (!stat(p, &st) && S_ISREG(st.st_mode) && st.st_size > 1000000) ? p : NULL;
+}
+
+int phosphor_hold_menu(void)
+{
+	if (!inited) ph_init();
+	if (!hold_until) return 0;
+	if (owner >= 0 || !is_menu() || CheckTimer(hold_until)) { hold_until = 0; return 0; }
+	return 1;
 }
 
 int phosphor_keep_main(const char *cfg_main)

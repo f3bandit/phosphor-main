@@ -71,3 +71,4 @@ uint16_t fpga_spi(uint16_t v)
 	}
 	return 0;
 }
+unsigned long CheckTimer(unsigned long t) { return GetTimer(0) > t; }
