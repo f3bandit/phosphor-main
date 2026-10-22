@@ -1,0 +1,25 @@
+# phosphor-main: test the Phosphor API on a PC, then build MiSTer (ARM) with the same GCC 10.2
+# toolchain MiSTer-devel uses (so it runs on MiSTer's Linux and its libraries).
+name: Build phosphor-main
+on:
+  push:
+    branches: [phosphor]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the Phosphor API
+        run: sh phosphor_tests/run.sh | tee test.log && grep -q "ALL PASSED" test.log
+      - name: Toolchain (ARM GNU 10.2-2020.11)
+        run: |
+          curl -fsSL -o tc.tar.xz https://developer.arm.com/-/media/Files/downloads/gnu-a/10.2-2020.11/binrel/gcc-arm-10.2-2020.11-x86_64-arm-none-linux-gnueabihf.tar.xz
+          tar -xf tc.tar.xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gcc-arm-10.2-2020.11-x86_64-arm-none-linux-gnueabihf/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: make -j4 && ls -l bin/MiSTer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MiSTer-phosphor
+          path: bin/MiSTer
