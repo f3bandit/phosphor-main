@@ -65,12 +65,15 @@ Coming: pause and save-state slots (cores that support them).
 (a newer GCC links against a newer glibc than MiSTer's Linux has). GitHub Actions ("Build phosphor-main")
 does this and keeps `bin/MiSTer` as an artifact. `phosphor_tests/run.sh` tests the API on a PC.
 
-## Trying it on a MiSTer
+## Running it
 
-Nothing installs it yet. To try it, stop Main and start this one by hand (it's undone by a reboot):
+Phosphor's SD card image boots with it: MiSTer's own Main starts as usual and is swapped for this one
+(`phosphor.sh boot`, from Phosphor's block in `linux/user-startup.sh`); `/media/fat/MiSTer` itself is
+never replaced, and it's never started while another Main (Console Mode's, for one) is running.
+
+On a card with Phosphor installed, by hand (undone by a reboot):
 
 ```
-killall MiSTer; sleep 1; /media/fat/phosphor/MiSTer_phosphor &
+/media/fat/phosphor/phosphor.sh main     # this Main in place of MiSTer's
+/media/fat/phosphor/phosphor.sh start    # the shell; it takes the screen through the API
 ```
-
-Then start the Phosphor shell: it takes the screen through the API (no F9).
