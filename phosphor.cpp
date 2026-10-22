@@ -468,6 +468,14 @@ void phosphor_poll(void)
 
 #define PH_SCRIPT "/media/fat/phosphor/phosphor.sh"
 
+const char *phosphor_menu_core(void)
+{
+	static const char *p = "/media/fat/phosphor/cores/menu_phosphor.rbf";
+	struct stat st;
+	// a whole core is a few MB; anything else (a failed copy) is ignored and the stock one loads
+	return (!stat(p, &st) && S_ISREG(st.st_mode) && st.st_size > 1000000) ? p : NULL;
+}
+
 int phosphor_installed(void)
 {
 	return access(PH_SCRIPT, R_OK) == 0;

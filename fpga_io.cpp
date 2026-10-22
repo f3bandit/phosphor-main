@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 
 #include "fpga_io.h"
+#include "phosphor.h"
 #include "file_io.h"
 #include "input.h"
 #include "osd.h"
@@ -441,6 +442,9 @@ int fpga_load_rbf(const char *name, const char *cfg, const char *xml)
 
 	if(name[0] == '/') strcpy(path, name);
 	else sprintf(path, "%s/%s", !strcasecmp(name, "menu.rbf") ? getStorageDir(0) : getRootDir(), name);
+
+	// Phosphor: its menu core (the stock one plus the front ports, off until asked) when installed
+	if (!strcasecmp(name, "menu.rbf") && phosphor_menu_core()) strcpy(path, phosphor_menu_core());
 
 	int rbf = open(path, O_RDONLY);
 	if (rbf < 0)
