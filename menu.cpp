@@ -1391,6 +1391,9 @@ void HandleUI(void)
 		}
 		else if (!on && video_fb_state())
 		{
+			// MiSTer's background setting not chosen yet (F1): the wallpaper (menu.png, Phosphor's) behind
+			// MiSTer's menu rather than the static; not saved, F1 still picks and saves one
+			if (!user_io_status_get("[3:1]") && (FileExists("menu.png") || FileExists("menu.jpg"))) user_io_status_set("[3:1]", 1);
 			video_menu_bg(user_io_status_get("[3:1]"));
 			video_fb_enable(0);
 		}
@@ -1691,7 +1694,7 @@ void HandleUI(void)
 				}
 				else if (is_menu())
 				{
-					menusub = phosphor_installed() ? 7 : 6;      // Phosphor: Launch Phosphor first
+					menusub = 6;                                  // (Phosphor: Launch Phosphor, when it's installed)
 					SelectFile("", 0, SCANO_CORES, MENU_CORE_FILE_SELECTED1, MENU_SYSTEM1);
 				}
 				else if (is_minimig())
@@ -7431,13 +7434,7 @@ void HandleUI(void)
 		OsdSetTitle("System Settings", OSD_ARROW_LEFT);
 		menumask = 0x7F;
 
-		// Phosphor: back to Phosphor, the first line (menusub 7: the list wraps, so it's above Storage)
-		if (phosphor_installed())
-		{
-			menumask |= 0x80;
-			OsdWrite(m++, " Launch Phosphor           \x16", menusub == 7);
-		}
-		else OsdWrite(m++);
+		OsdWrite(m++);
 		sprintf(s, "       MiSTer v%s", version + 5);
 		{
 			char str[8] = {};
@@ -7491,12 +7488,18 @@ void HandleUI(void)
 		OsdWrite(m++, "");
 		cr = m;
 		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 5);
+		// Phosphor: Launch Phosphor right under Reboot (menusub 6; Exit moves to 7)
+		if (phosphor_installed())
+		{
+			menumask |= 0x80;
+			OsdWrite(m++, " Launch Phosphor", menusub == 6);
+		}
 		sysinfo_timer = 0;
 
 		reboot_req = 0;
 
 		while(m < OsdGetSize()-1) OsdWrite(m++, "");
-		OsdWrite(15, STD_EXIT, menusub == 6);
+		OsdWrite(15, STD_EXIT, menusub == (phosphor_installed() ? 7 : 6));
 		menustate = MENU_SYSTEM2;
 		break;
 
@@ -7571,11 +7574,12 @@ void HandleUI(void)
 				break;
 
 			case 6:
-				menustate = MENU_NONE1;
+				if (phosphor_installed()) { if (phosphor_start()) menustate = MENU_NONE1; }   // Phosphor: Launch Phosphor
+				else menustate = MENU_NONE1;
 				break;
 
 			case 7:
-				if (phosphor_start()) menustate = MENU_NONE1;
+				menustate = MENU_NONE1;                 // (Exit, when Launch Phosphor is there)
 				break;
 			}
 		}

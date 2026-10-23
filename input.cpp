@@ -1734,6 +1734,7 @@ static int mapping_current_dev = -1;
 // records the buttons and writes the same mapping file as the OSD does.
 int phosphor_mapping = 0;               // the shell runs the mapping
 uint32_t phosphor_map_vidpid = 0;       // only this controller (vid << 16 | pid); 0: whichever is pressed first
+int phosphor_map_cancel = 0;            // Esc, or Select + Start together: phosphor.cpp stops it
 int input_map_running(void) { return mapping; }
 void input_map_jump(int to) { mapping_button = to; mapping_current_key = 0; }
 uint32_t input_map_dev_vidpid(void) { return mapping_dev >= 0 ? (((uint32_t)input[mapping_dev].vid << 16) | input[mapping_dev].pid) : 0; }
@@ -3251,6 +3252,14 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 	// stick step means "this controller has no such stick" (MiSTer's OSD asks for the keyboard's Space)
 	if (mapping && phosphor_mapping && mapping_type <= 1)
 	{
+		// cancel, nothing saved: Esc on a keyboard, or Select + Start together on the controller
+		static int sel_down, start_down;
+		if (ev->type == EV_KEY && ev->code == KEY_ESC && ev->value == 1) { phosphor_map_cancel = 1; return; }
+		if (ev->type == EV_KEY && (ev->code == BTN_SELECT || ev->code == BTN_START) && ev->value != 2)
+		{
+			if (ev->code == BTN_SELECT) sel_down = ev->value; else start_down = ev->value;
+			if (sel_down && start_down) { sel_down = start_down = 0; phosphor_map_cancel = 1; return; }
+		}
 		uint32_t vp = ((uint32_t)input[dev].vid << 16) | input[dev].pid;
 		if (phosphor_map_vidpid && vp != phosphor_map_vidpid) return;
 		if (ev->type == EV_KEY && ev->value == 1 && mapping_dev == dev &&

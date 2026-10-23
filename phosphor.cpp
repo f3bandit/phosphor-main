@@ -38,7 +38,8 @@
 // with the shell showing the steps instead of the OSD (the screen owner only, in the menu core):
 //   map_start [VVVV:PPPP]  start; only that controller counts (else whichever is pressed first)
 //   map_skip               skip this step (the D-pad test, a stick, X/Y/L/R/Select/Start)
-//   map_cancel             stop, nothing saved (the controller keeps its old mapping)
+//   map_cancel             stop, nothing saved (the controller keeps its old mapping); so do Esc on a
+//                          keyboard and Select + Start together on the controller
 //   map_state              {"ok":true,"on":true,"step":N,"dev":"2dc8:6013"}
 //   events to the owner:   {"event":"map","step":N,"dev":"2dc8:6013"} at each step, then
 //                          {"event":"map","done":true,"saved":true|false,"file":"input_2dc8_6013_v3.map"}
@@ -99,6 +100,7 @@ static unsigned long hold_until;   // Main's file browser waits for the shell un
 // controller mapping (input.cpp)
 extern int phosphor_mapping;
 extern uint32_t phosphor_map_vidpid;
+extern int phosphor_map_cancel;
 int input_map_running(void);
 void input_map_jump(int to);
 uint32_t input_map_dev_vidpid(void);
@@ -221,8 +223,8 @@ static void map_command(int i, const char *arg)
 // each loop: skip what isn't asked, finish at the end, and tell the shell the step
 static void map_poll(void)
 {
-	if (!phosphor_mapping) return;
-	if (!input_map_running()) { map_end(0); return; }          // stopped some other way
+	if (!phosphor_mapping) { phosphor_map_cancel = 0; return; }
+	if (phosphor_map_cancel || !input_map_running()) { phosphor_map_cancel = 0; map_end(0); return; }   // cancelled, or stopped some other way
 	int b = get_map_button();
 	if (b >= 12 && b <= 19) { input_map_jump(20); b = 20; }       // mouse emulation: not asked
 	if (b >= 25) { map_end(1); return; }
