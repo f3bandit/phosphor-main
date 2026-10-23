@@ -2,7 +2,7 @@
 // around it. Part of phosphor-main (a fork of MiSTer-devel/Main_MiSTer), GPL-3.0 like Main.
 //
 // Unix socket /tmp/phosphor-main.sock (root only), one command per line, one JSON reply per line:
-//   hello                  {"ok":true,"api":3,"name":"phosphor-main","pads":true,"scripts":true}
+//   hello                  {"ok":true,"api":4,"name":"phosphor-main","pads":true,"scripts":true,"mapping":true}
 //   status                 core, menu core or not, OSD visible, framebuffer shown, who owns the screen
 //   script PATH            (the shell, owning the screen) run a script the way MiSTer's Scripts menu does:
 //                          MiSTer's terminal on tty2, controllers as its keys, "Press any key to continue";
@@ -33,6 +33,19 @@
 //   card_write P S HEX     write 128 bytes (256 hex digits) to sector S: {"ok":true}
 //                          errors: "no card", "bad reply", "out of range", "timeout", "busy"
 //                          (one card operation at a time; the reply comes when it's done)
+// Controller button mapping, MiSTer's own (the menu's "Define joystick buttons", same mapping file),
+// with the shell showing the steps instead of the OSD (the screen owner only, in the menu core):
+//   map_start [VVVV:PPPP]  start; only that controller counts (else whichever is pressed first)
+//   map_skip               skip this step (the D-pad test, a stick, X/Y/L/R/Select/Start)
+//   map_cancel             stop, nothing saved (the controller keeps its old mapping)
+//   map_state              {"ok":true,"on":true,"step":N,"dev":"2dc8:6013"}
+//   events to the owner:   {"event":"map","step":N,"dev":"2dc8:6013"} at each step, then
+//                          {"event":"map","done":true,"saved":true|false,"file":"input_2dc8_6013_v3.map"}
+//   steps (MiSTer's): -6 -5 D-pad test right, down; -4 -3 stick 1 right, down; -2 -1 stick 2;
+//   0..3 right left down up; 4..11 A B X Y L R Select Start; 20 Menu (the OSD button, a 2-button
+//   combo allowed); 21 OK; 22 Back; 23 24 a stick for the menu, right, down. On a stick step any
+//   button means "no such stick"; on X..Start, a button already used skips it. Mouse emulation
+//   (12..19) isn't asked.
 // Apart from those commands nothing here talks to the FPGA directly: it uses Main's own
 // functions, from Main's UI loop.
 #include "phosphor.h"
@@ -82,6 +95,16 @@ static unsigned long f12_down;   // when the menu button went down (sheet), 0: n
 static int inited;
 static unsigned long hold_until;   // Main's file browser waits for the shell until then (0: no wait)
 
+// controller mapping (input.cpp)
+extern int phosphor_mapping;
+extern uint32_t phosphor_map_vidpid;
+int input_map_running(void);
+void input_map_jump(int to);
+uint32_t input_map_dev_vidpid(void);
+const char *input_map_file(void);
+static struct { int client, step; uint32_t dev; } mp = { -1, -100, 0 };
+#define MAP_COUNT 27      // MiSTer's menu mapping: 21 buttons and the 6 test steps
+
 // the front ports (phosphor-menu's extension on EXT_BUS)
 #define PH_ID          0x80
 #define PH_MODE        0x81
@@ -121,6 +144,98 @@ static void ph_init(void)
 }
 
 static void drop(int i);
+static void send_line(int i, const char *s);
+
+static void map_dev(char *out, size_t n, uint32_t vp)
+{
+	if (vp) snprintf(out, n, "%04x:%04x", vp >> 16, vp & 0xFFFF);
+	else out[0] = 0;
+}
+
+static void map_end(int saved)
+{
+	char ev[256], file[128];
+	snprintf(file, sizeof(file), "%s", saved ? input_map_file() : "");
+	finish_map_setting(saved ? 0 : 1);
+	phosphor_mapping = 0;
+	phosphor_map_vidpid = 0;
+	if (mp.client >= 0 && cl[mp.client].fd >= 0)
+	{
+		snprintf(ev, sizeof(ev), "{\"event\":\"map\",\"done\":true,\"saved\":%s,\"file\":\"%s\"}", saved ? "true" : "false", file);
+		send_line(mp.client, ev);
+	}
+	mp.client = -1;
+	mp.step = -100;
+}
+
+static void map_command(int i, const char *arg)
+{
+	char out[160], dev[16];
+	if (!strcmp(arg, "state"))
+	{
+		map_dev(dev, sizeof(dev), input_map_dev_vidpid());
+		snprintf(out, sizeof(out), "{\"ok\":true,\"on\":%s,\"step\":%d,\"dev\":\"%s\"}", phosphor_mapping ? "true" : "false",
+			phosphor_mapping ? get_map_button() : 0, phosphor_mapping ? dev : "");
+		send_line(i, out);
+		return;
+	}
+	if (owner != i || !is_menu()) { send_line(i, "{\"ok\":false,\"error\":\"take the screen first (screen phosphor)\"}"); return; }
+	if (!strncmp(arg, "start", 5) && (!arg[5] || arg[5] == ' '))
+	{
+		if (input_map_running()) { send_line(i, "{\"ok\":false,\"error\":\"a mapping is already running\"}"); return; }
+		unsigned v = 0, p = 0;
+		if (arg[5] == ' ' && sscanf(arg + 6, "%4x:%4x", &v, &p) != 2) { send_line(i, "{\"ok\":false,\"error\":\"map_start VVVV:PPPP\"}"); return; }
+		// the names MiSTer's menu gives the buttons (MENU_JOYSYSMAP)
+		static const char *const N[] = { "A", "B", "X", "Y", "L", "R", "Select", "Start", "Mouse Move RIGHT", "Mouse Move LEFT",
+			"Mouse Move DOWN", "Mouse Move UP", "Mouse Btn Left", "Mouse Btn Right", "Mouse Btn Middle", "Mouse Emu/Sniper", "Menu",
+			"Menu: OK", "Menu: Back" };
+		for (unsigned k = 0; k < sizeof(N) / sizeof(N[0]); k++) snprintf(joy_bnames[k], sizeof(joy_bnames[k]), "%s", N[k]);
+		joy_bcount = 21;
+		phosphor_map_vidpid = (v << 16) | p;
+		phosphor_mapping = 1;
+		mp.client = i;
+		mp.step = -100;
+		mp.dev = 0;
+		start_map_setting(MAP_COUNT);
+		send_line(i, "{\"ok\":true}");
+		return;
+	}
+	if (!phosphor_mapping) { send_line(i, "{\"ok\":false,\"error\":\"no mapping running\"}"); return; }
+	if (!strcmp(arg, "cancel")) { send_line(i, "{\"ok\":true}"); map_end(0); return; }
+	if (!strcmp(arg, "skip"))
+	{
+		int b = get_map_button(), to;
+		if (b < -4) to = -4;                        // no D-pad test: straight to the sticks
+		else if (b < 0) to = b < -2 ? -2 : 0;       // no such stick
+		else if (b >= 6 && b <= 11) to = b + 1;     // X, Y, L, R, Select, Start
+		else if (b == 23 || b == 24) to = 25;       // no stick for the menu
+		else { send_line(i, "{\"ok\":false,\"error\":\"this one is needed\"}"); return; }
+		input_map_jump(to);
+		send_line(i, "{\"ok\":true}");
+		return;
+	}
+	send_line(i, "{\"ok\":false,\"error\":\"map_start, map_skip, map_cancel or map_state\"}");
+}
+
+// each loop: skip what isn't asked, finish at the end, and tell the shell the step
+static void map_poll(void)
+{
+	if (!phosphor_mapping) return;
+	if (!input_map_running()) { map_end(0); return; }          // stopped some other way
+	int b = get_map_button();
+	if (b >= 12 && b <= 19) { input_map_jump(20); b = 20; }       // mouse emulation: not asked
+	if (b >= 25) { map_end(1); return; }
+	uint32_t d = input_map_dev_vidpid();
+	if (b != mp.step || d != mp.dev)
+	{
+		char ev[128], dev[16];
+		mp.step = b;
+		mp.dev = d;
+		map_dev(dev, sizeof(dev), d);
+		snprintf(ev, sizeof(ev), "{\"event\":\"map\",\"step\":%d,\"dev\":\"%s\"}", b, dev);
+		if (mp.client >= 0 && cl[mp.client].fd >= 0) send_line(mp.client, ev);
+	}
+}
 
 static void send_line(int i, const char *s)
 {
@@ -445,6 +560,7 @@ static void drop(int i)
 {
 	close(cl[i].fd);
 	cl[i].fd = -1;
+	if (mp.client == i && phosphor_mapping) map_end(0);   // the shell went away mid-mapping: nothing saved
 	if (owner == i) give_back();      // the shell went away: Main's menu comes back
 	if (sheet_client == i) sheet_client = -1;
 	if (card_op.client == i) card_op.client = -1;   // (the card finishes on its own)
@@ -466,7 +582,7 @@ static void command(int i, char *line)
 	char out[512];
 	while (*line == ' ') line++;
 	if (!strcmp(line, "hello"))
-		send_line(i, "{\"ok\":true,\"api\":3,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true}");   // api 3: scripts
+		send_line(i, "{\"ok\":true,\"api\":4,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true,\"mapping\":true}");   // api 3: scripts, 4: mapping
 	else if (!strncmp(line, "script ", 7)) script_start(i, line + 7);
 	else if (!strcmp(line, "status"))
 	{
@@ -535,6 +651,7 @@ static void command(int i, char *line)
 		pad_seq.next = 0;
 		send_line(i, "{\"ok\":true}");
 	}
+	else if (!strncmp(line, "map_", 4)) map_command(i, line + 4);
 	else if (!strncmp(line, "card_read ", 10)) card_command(i, line + 10, 0);
 	else if (!strncmp(line, "card_write ", 11)) card_command(i, line + 11, 1);
 	else send_line(i, "{\"ok\":false,\"error\":\"unknown command\"}");
@@ -635,6 +752,7 @@ void phosphor_poll(void)
 
 	card_poll();
 	pad_seq_poll();
+	map_poll();
 
 	// events
 	char core[64], ev[256], name[128];
