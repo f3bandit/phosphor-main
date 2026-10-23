@@ -3183,7 +3183,7 @@ void HandleUI(void)
 					reboot_req = 1;
 
 					int off = hold_cnt / 3;
-					if (off > 5) reboot(1);
+					if (off > 5) { extern const char *reboot_why; reboot_why = "MiSTer menu: Reboot"; reboot(1); }
 
 					sprintf(s, " Cold Reboot");
 					p = s + 5 - off;
@@ -7556,7 +7556,7 @@ void HandleUI(void)
 					reboot_req = 1;
 
 					int off = hold_cnt / 3;
-					if (off > 5) reboot(1);
+					if (off > 5) { extern const char *reboot_why; reboot_why = "MiSTer menu: Reboot"; reboot(1); }
 
 					sprintf(s, " Cold Reboot");
 					p = s + 5 - off;
