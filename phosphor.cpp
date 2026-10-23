@@ -327,6 +327,7 @@ static void script_finish(void)
 {
 	script_state = 0;
 	video_chvt(1);
+	video_fb_console_done();
 	if (script_client >= 0 && cl[script_client].fd >= 0)
 	{
 		char ev[80];
@@ -362,7 +363,7 @@ static void script_start(int i, const char *path)
 		execl("/sbin/agetty", "/sbin/agetty", "-a", "root", "-l", "/tmp/phosphor-script", "--nohostname", "-L", "tty2", "linux", NULL);
 		_exit(127);
 	}
-	if (script_pid < 0) { video_chvt(1); send_line(i, "{\"ok\":false,\"error\":\"can't start it\"}"); return; }
+	if (script_pid < 0) { video_chvt(1); video_fb_console_done(); send_line(i, "{\"ok\":false,\"error\":\"can't start it\"}"); return; }
 	script_state = 1;
 	script_client = i;
 	script_status = 0;

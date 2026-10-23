@@ -3579,11 +3579,24 @@ static void fb_write_module_params()
 }
 
 // Phosphor: the framebuffer as MiSTer's own terminal has it (after the shell changed its mode with
-// fb_cmd1), for running a script the way the Scripts menu does
+// fb_cmd1), for running a script the way the Scripts menu does. At 1080p the terminal is 1920 wide, so
+// the 8x16 font gives 240 columns and the updaters' 80-column output sits small at the left; a 16x32
+// font on the script's console (tty2) gives 120x33, drawn natively. video_fb_console_done puts the
+// standard font back, so MiSTer's own Scripts menu looks as it always has.
+static int console_big;
 void video_fb_console()
 {
 	fb_write_module_params();
 	video_fb_enable(1);
+	console_big = !con_crt && con_width >= 1600;
+	if (console_big) offload_add_work([] { system("setfont -C /dev/tty2 /usr/share/consolefonts/latarcyrheb-sun32.psfu.gz"); });
+}
+
+void video_fb_console_done()
+{
+	if (!console_big) return;
+	console_big = 0;
+	offload_add_work([] { system("setfont -C /dev/tty2 /usr/share/consolefonts/default8x16.psfu.gz"); });
 }
 
 void video_fb_enable(int enable, int n)
