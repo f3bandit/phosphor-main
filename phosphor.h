@@ -26,5 +26,7 @@ int phosphor_keep_main(const char *cfg_main);
 // closed instead of popping up first; 0 once the shell has the screen, gave it back, or 60 s passed
 int phosphor_hold_menu(void);
 int phosphor_start(void);
+// Main is about to restart the system on purpose: heavy work that was running didn't lose power
+void phosphor_mark_clean(void);
 
 #endif

@@ -598,6 +598,7 @@ int fpga_get_hdmi_int()
 
 static void reboot_note(int cold, void *from)
 {
+	phosphor_mark_clean();
 	FILE *f = fopen("/media/fat/phosphor/logs/main-reboots.log", "a");
 	if (!f) return;
 	time_t t = time(NULL);

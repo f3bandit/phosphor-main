@@ -55,6 +55,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "support/arcade/mra_loader.h"          // xml_load: .mra / .mgl
 void menu_phosphor_screen(int phosphor);        // menu.cpp
@@ -318,6 +319,55 @@ static void give_back(void)
 	printf("phosphor: screen back to Main\n");
 }
 
+// ---- power check markers (read by the health-watch module at start-up): a script runs -> "script";
+// Main restarts the system on purpose -> ".clean" with this boot's id. Left behind from another boot
+// with no .clean, a marker means the power went mid-job (a brownout leaves no other trace).
+#define BUSY_DIR "/media/fat/phosphor/state/busy"
+static const char *boot_id(void)
+{
+	static char id[64];
+	if (!id[0])
+	{
+		FILE *f = fopen("/proc/sys/kernel/random/boot_id", "r");
+		if (f) { if (!fgets(id, sizeof(id), f)) id[0] = 0; fclose(f); }
+		id[strcspn(id, "\n")] = 0;
+	}
+	return id;
+}
+
+static void busy_write(const char *name, const char *what)
+{
+	if (!boot_id()[0] || access("/media/fat/phosphor", F_OK)) return;
+	mkdir("/media/fat/phosphor/state", 0755);
+	mkdir(BUSY_DIR, 0755);
+	char p[300], buf[300];
+	snprintf(p, sizeof(p), BUSY_DIR "/%s", name);
+	int n = what ? snprintf(buf, sizeof(buf), "boot=%s\nat=%ld\nwhat=%s\n", boot_id(), (long)time(NULL), what)
+	             : snprintf(buf, sizeof(buf), "boot=%s\n", boot_id());
+	int fd = open(p, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+	if (fd < 0) return;
+	if (write(fd, buf, n) != n) printf("phosphor: couldn't write %s\n", p);
+	fsync(fd);
+	close(fd);
+	int d = open(BUSY_DIR, O_RDONLY | O_CLOEXEC);
+	if (d >= 0) { fsync(d); close(d); }
+}
+
+void phosphor_mark_clean(void) { busy_write(".clean", NULL); }
+
+// Main started again in the same boot (it was restarted mid-script): that marker is stale
+static void busy_init(void)
+{
+	FILE *f = fopen(BUSY_DIR "/script", "r");
+	if (!f) return;
+	char line[160] = "";
+	int same = 0;
+	while (fgets(line, sizeof(line), f))
+		if (!strncmp(line, "boot=", 5)) { line[strcspn(line, "\n")] = 0; same = boot_id()[0] && !strcmp(line + 5, boot_id()); break; }
+	fclose(f);
+	if (same) unlink(BUSY_DIR "/script");
+}
+
 // ---- scripts (Update All, the downloader, Scripts/*.sh), run the way MiSTer's Scripts menu runs them
 static pid_t script_pid;
 static int script_state, script_client = -1, script_status;   // state: 0 none, 1 running, 2 "press any key"
@@ -326,6 +376,7 @@ int video_chvt(int num);
 static void script_finish(void)
 {
 	script_state = 0;
+	unlink(BUSY_DIR "/script");
 	video_chvt(1);
 	video_fb_console_done();
 	if (script_client >= 0 && cl[script_client].fd >= 0)
@@ -365,6 +416,15 @@ static void script_start(int i, const char *path)
 	}
 	if (script_pid < 0) { video_chvt(1); video_fb_console_done(); send_line(i, "{\"ok\":false,\"error\":\"can't start it\"}"); return; }
 	script_state = 1;
+	{
+		const char *b = strrchr(path, '/');
+		b = b ? b + 1 : path;
+		char what[120];
+		if (!strcmp(b, "update_all.sh")) snprintf(what, sizeof(what), "Update All");
+		else if (!strcmp(b, "update.sh")) snprintf(what, sizeof(what), "Update");
+		else snprintf(what, sizeof(what), "Script %.*s", (int)(strlen(b) > 3 && !strcmp(b + strlen(b) - 3, ".sh") ? strlen(b) - 3 : strlen(b)), b);
+		busy_write("script", what);
+	}
 	script_client = i;
 	script_status = 0;
 	send_line(i, "{\"ok\":true}");
@@ -549,6 +609,8 @@ int phosphor_pad(uint32_t mask, int press)
 
 void phosphor_poll(void)
 {
+	static int started;
+	if (!started) { started = 1; busy_init(); }
 	if (rep_mask && CheckTimer(rep_next))
 	{
 		if (owner < 0) rep_mask = 0;
