@@ -85,6 +85,7 @@ static unsigned long hold_until;   // Main's file browser waits for the shell un
 #define PH_CARD        0x83
 #define PH_CARD_STATUS 0x84
 #define PH_PAD_CMD     0x85
+#define PH_LOOK        0x86   // bit 0: MiSTer's static behind the menu (else black)
 #define PH_CARD_TIMEOUT_MS 500
 static int ext_ver = -1;         // -1 not asked yet (for this core), 0 none, >0 the extension's version
 static int ports_client = -1;    // the client that turned the front ports on
@@ -478,6 +479,18 @@ void phosphor_poll(void)
 	}
 	// the menu core reloads its video after some actions: keep the shell's framebuffer up
 	if (owner >= 0 && is_menu() && !video_fb_state()) menu_phosphor_screen(1);
+	// black behind the menu while Phosphor has (or is about to have) the screen, MiSTer's static while its
+	// own menu does. Sent again after a core change (a new menu core starts black).
+	static int look = -1;
+	int want = (owner < 0 && !hold_until) ? 1 : 0;
+	if (ext_ver < 0) look = -1;
+	if (is_menu() && want != look && ext_present())
+	{
+		spi_uio_cmd_cont(PH_LOOK);
+		spi_w((uint16_t)want);
+		DisableIO();
+		look = want;
+	}
 }
 
 #define PH_SCRIPT "/media/fat/phosphor/phosphor.sh"
