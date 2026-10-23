@@ -339,7 +339,7 @@ static void command(int i, char *line)
 	char out[512];
 	while (*line == ' ') line++;
 	if (!strcmp(line, "hello"))
-		send_line(i, "{\"ok\":true,\"api\":1,\"name\":\"phosphor-main\"}");
+		send_line(i, "{\"ok\":true,\"api\":2,\"name\":\"phosphor-main\",\"pads\":true}");   // api 2: controller events
 	else if (!strcmp(line, "status"))
 	{
 		status_line(out, sizeof(out));
@@ -437,8 +437,54 @@ static void read_client(int i)
 	}
 }
 
+// Controllers for the shell, the way MiSTer's own menu gets them: Main reads them, with the button mapping
+// set up in MiSTer, and the shell gets the buttons as events {"event":"pad","b":"up","p":1|0|2} (2: held,
+// repeated like MiSTer's menu does). Called from input.cpp while the Linux framebuffer is up.
+static uint32_t rep_mask;
+static unsigned long rep_next;
+static const char *pad_name(uint32_t m)
+{
+	switch (m)
+	{
+	case JOY_UP: return "up";
+	case JOY_DOWN: return "down";
+	case JOY_LEFT: return "left";
+	case JOY_RIGHT: return "right";
+	case JOY_A: return "a";
+	case JOY_B: return "b";
+	case JOY_X: return "x";
+	case JOY_Y: return "y";
+	case JOY_L: return "l";
+	case JOY_R: return "r";
+	case JOY_SELECT: return "select";
+	case JOY_START: return "start";
+	default: return NULL;
+	}
+}
+static void pad_send(uint32_t m, int p)
+{
+	const char *b = pad_name(m);
+	if (!b || owner < 0 || cl[owner].fd < 0) return;
+	char ev[64];
+	snprintf(ev, sizeof(ev), "{\"event\":\"pad\",\"b\":\"%s\",\"p\":%d}", b, p);
+	send_line(owner, ev);
+}
+int phosphor_pad(uint32_t mask, int press)
+{
+	if (owner < 0 || !is_menu() || !pad_name(mask)) return 0;
+	pad_send(mask, press ? 1 : 0);
+	if (press && (mask & JOY_MOVE)) { rep_mask = mask; rep_next = GetTimer(320); }
+	else if (!press && mask == rep_mask) rep_mask = 0;
+	return 1;
+}
+
 void phosphor_poll(void)
 {
+	if (rep_mask && CheckTimer(rep_next))
+	{
+		if (owner < 0) rep_mask = 0;
+		else { pad_send(rep_mask, 2); rep_next = GetTimer(85); }
+	}
 	if (!inited) ph_init();
 	if (lfd < 0) return;
 

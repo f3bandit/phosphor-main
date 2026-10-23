@@ -7,6 +7,8 @@
 
 // called from the UI loop (scheduler.cpp / main.cpp): accepts clients, runs their commands, sends events
 void phosphor_poll(void);
+// a controller button (MiSTer's JOY_* mask) while the framebuffer is up: 1 if it went to the shell
+int phosphor_pad(uint32_t mask, int press);
 
 // called by HandleUI with each key code it's about to act on; returns the code to use (0: swallowed).
 // While Phosphor owns the screen in the menu core, Main's menu ignores keys (the shell has them);

@@ -19,6 +19,7 @@
 #include <math.h>
 
 #include "input.h"
+#include "phosphor.h"
 #include "autofire.h"
 #include "user_io.h"
 #include "menu.h"
@@ -2527,6 +2528,10 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 				ev.code = (bnum == BTN_OSD) ? KEY_MENU : 0;
 			}
 			input_cb(&ev, 0, 0, true);
+		}
+		else if (video_fb_state() && phosphor_pad(mask, press))
+		{
+			// Phosphor's shell has the screen: the button went to it, mapped the way MiSTer has it
 		}
 		else if (video_fb_state())
 		{
