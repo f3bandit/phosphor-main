@@ -4031,6 +4031,8 @@ void user_io_poll()
 	prev_coldreset_req = coldreset_req;
 	if (reset_timer && CheckTimer(reset_timer))
 	{
+		extern const char *reboot_why;
+		reboot_why = "keyboard cold-reset keys held (ctrl+alt+shift combo)";
 		reboot(1);
 	}
 

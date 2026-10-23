@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -23,6 +24,10 @@
 #include "fpga_system_manager.h"
 #include "fpga_reset_manager.h"
 #include "fpga_nic301.h"
+#include "user_io.h"
+
+// Phosphor: why the system restarted, kept on the SD card (the console isn't always being watched)
+const char *reboot_why = "";
 
 #define FPGA_REG_BASE 0xFF000000
 #define FPGA_REG_SIZE 0x01000000
@@ -435,6 +440,7 @@ int fpga_load_rbf(const char *name, const char *cfg, const char *xml)
 		fpga_core_reset(1);
 		make_env(name, cfg);
 		do_bridge(0);
+		reboot_why = "loading a core with its own settings (cfg)";
 		reboot(0);
 	}
 
@@ -589,8 +595,22 @@ int fpga_get_hdmi_int()
 	return (fpga_gpi_read() >> 20) & 1;
 }
 
+
+static void reboot_note(int cold, void *from)
+{
+	FILE *f = fopen("/media/fat/phosphor/logs/main-reboots.log", "a");
+	if (!f) return;
+	time_t t = time(NULL);
+	char when[32];
+	strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", localtime(&t));
+	fprintf(f, "%s  %s reboot  %s  (from %p, core %s)\n", when, cold ? "cold" : "warm", reboot_why && *reboot_why ? reboot_why : "?",
+		from, user_io_get_core_name());
+	fclose(f);
+}
+
 void reboot(int cold)
 {
+	reboot_note(cold, __builtin_return_address(0));
 	sync();
 	fpga_core_reset(1);
 
@@ -646,6 +666,7 @@ void app_restart(const char *path, const char *xml, const char *exe)
 	}
 
 	printf("Something went wrong. Rebooting...\n");
+	reboot_why = "loading a core went wrong";
 	reboot(1);
 	_exit(1);
 }
@@ -686,6 +707,7 @@ void fpga_wait_to_reset()
 	{
 		sleep(1);
 	}
+	reboot_why = "the FPGA wasn't ready (GPI[31])";
 	reboot(0);
 }
 
