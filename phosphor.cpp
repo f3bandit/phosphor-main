@@ -2,8 +2,11 @@
 // around it. Part of phosphor-main (a fork of MiSTer-devel/Main_MiSTer), GPL-3.0 like Main.
 //
 // Unix socket /tmp/phosphor-main.sock (root only), one command per line, one JSON reply per line:
-//   hello                  {"ok":true,"api":2,"name":"phosphor-main","pads":true}
+//   hello                  {"ok":true,"api":3,"name":"phosphor-main","pads":true,"scripts":true}
 //   status                 core, menu core or not, OSD visible, framebuffer shown, who owns the screen
+//   script PATH            (the shell, owning the screen) run a script the way MiSTer's Scripts menu does:
+//                          MiSTer's terminal on tty2, controllers as its keys, "Press any key to continue";
+//                          then event {"event":"script_done","status":N} and the shell has the screen again
 //   screen phosphor|main   Phosphor takes the screen in the menu core (Linux framebuffer shown, Main's
 //                          menu ignores keys) or gives it back. Ownership belongs to this connection:
 //                          if it closes (the shell quit or crashed), Main takes the screen back.
@@ -315,6 +318,67 @@ static void give_back(void)
 	printf("phosphor: screen back to Main\n");
 }
 
+// ---- scripts (Update All, the downloader, Scripts/*.sh), run the way MiSTer's Scripts menu runs them
+static pid_t script_pid;
+static int script_state, script_client = -1, script_status;   // state: 0 none, 1 running, 2 "press any key"
+int video_chvt(int num);
+
+static void script_finish(void)
+{
+	script_state = 0;
+	video_chvt(1);
+	if (script_client >= 0 && cl[script_client].fd >= 0)
+	{
+		char ev[80];
+		snprintf(ev, sizeof(ev), "{\"event\":\"script_done\",\"status\":%d}", script_status);
+		send_line(script_client, ev);
+	}
+	script_client = -1;
+}
+
+static void script_start(int i, const char *path)
+{
+	struct stat sb;
+	if (owner != i || !is_menu()) { send_line(i, "{\"ok\":false,\"error\":\"take the screen first (screen phosphor)\"}"); return; }
+	if (script_state) { send_line(i, "{\"ok\":false,\"error\":\"a script is running\"}"); return; }
+	if (strncmp(path, "/media/", 7) || strstr(path, "..") || strchr(path, '"') || strchr(path, '$') || strchr(path, '`')
+		|| stat(path, &sb) || !S_ISREG(sb.st_mode))
+	{
+		send_line(i, "{\"ok\":false,\"error\":\"no such script\"}");
+		return;
+	}
+	static char cmd[2048];
+	snprintf(cmd, sizeof(cmd), "#!/bin/bash\nexport LC_ALL=en_US.UTF-8\nexport HOME=/root\ncd \"$(dirname \"%s\")\"\n\"%s\"\n"
+		"EXITSTATUS=$?\necho \"Press any key to continue\"\nexit $EXITSTATUS\n", path, path);
+	unlink("/tmp/phosphor-script");
+	int fd = open("/tmp/phosphor-script", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0755);
+	if (fd < 0 || write(fd, cmd, strlen(cmd)) != (ssize_t)strlen(cmd)) { if (fd >= 0) close(fd); send_line(i, "{\"ok\":false,\"error\":\"can't write /tmp\"}"); return; }
+	close(fd);
+	video_fb_console();
+	video_chvt(2);
+	script_pid = fork();
+	if (!script_pid)
+	{
+		execl("/sbin/agetty", "/sbin/agetty", "-a", "root", "-l", "/tmp/phosphor-script", "--nohostname", "-L", "tty2", "linux", NULL);
+		_exit(127);
+	}
+	if (script_pid < 0) { video_chvt(1); send_line(i, "{\"ok\":false,\"error\":\"can't start it\"}"); return; }
+	script_state = 1;
+	script_client = i;
+	script_status = 0;
+	send_line(i, "{\"ok\":true}");
+}
+
+static void script_poll(void)
+{
+	int st;
+	if (script_state == 1 && waitpid(script_pid, &st, WNOHANG) > 0)
+	{
+		script_status = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+		script_state = 2;                      // "Press any key to continue" is on the screen
+	}
+}
+
 static void drop(int i)
 {
 	close(cl[i].fd);
@@ -323,6 +387,7 @@ static void drop(int i)
 	if (sheet_client == i) sheet_client = -1;
 	if (card_op.client == i) card_op.client = -1;   // (the card finishes on its own)
 	if (ports_client == i) ports_set(-1, 0);
+	if (script_client == i) script_client = -1;   // (the script carries on; nobody to tell)
 }
 
 static void status_line(char *out, size_t n)
@@ -339,7 +404,8 @@ static void command(int i, char *line)
 	char out[512];
 	while (*line == ' ') line++;
 	if (!strcmp(line, "hello"))
-		send_line(i, "{\"ok\":true,\"api\":2,\"name\":\"phosphor-main\",\"pads\":true}");   // api 2: controller events
+		send_line(i, "{\"ok\":true,\"api\":3,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true}");   // api 3: scripts
+	else if (!strncmp(line, "script ", 7)) script_start(i, line + 7);
 	else if (!strcmp(line, "status"))
 	{
 		status_line(out, sizeof(out));
@@ -471,6 +537,8 @@ static void pad_send(uint32_t m, int p)
 }
 int phosphor_pad(uint32_t mask, int press)
 {
+	if (script_state == 1) return 0;           // the script has the controllers (MiSTer's terminal keys)
+	if (script_state == 2) { if (press) script_finish(); return 1; }
 	if (owner < 0 || !is_menu() || !pad_name(mask)) return 0;
 	pad_send(mask, press ? 1 : 0);
 	if (press && (mask & JOY_MOVE)) { rep_mask = mask; rep_next = GetTimer(320); }
@@ -487,6 +555,7 @@ void phosphor_poll(void)
 	}
 	if (!inited) ph_init();
 	if (lfd < 0) return;
+	script_poll();
 
 	int fd;
 	while ((fd = accept4(lfd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC)) >= 0)
@@ -524,7 +593,7 @@ void phosphor_poll(void)
 		event_all(ev);
 	}
 	// the menu core reloads its video after some actions: keep the shell's framebuffer up
-	if (owner >= 0 && is_menu() && !video_fb_state()) menu_phosphor_screen(1);
+	if (owner >= 0 && is_menu() && !video_fb_state() && !script_state) menu_phosphor_screen(1);
 	// black behind the menu while Phosphor has (or is about to have) the screen, MiSTer's static while its
 	// own menu does. Sent again after a core change (a new menu core starts black).
 	static int look = -1;
@@ -613,6 +682,8 @@ uint32_t phosphor_filter_key(uint32_t c)
 	if (!c) return c;
 	uint32_t key = c & ~UPSTROKE;
 
+	if (script_state == 2 && (c & UPSTROKE)) { script_finish(); return 0; }   // "press any key"
+	if (script_state) return 0;                // the keyboard types into the script's terminal
 	if (owner >= 0 && is_menu())
 	{
 		// the shell has the controls: Main's menu does nothing (no OSD, no F9, no file browser)

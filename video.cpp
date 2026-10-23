@@ -3578,6 +3578,14 @@ static void fb_write_module_params()
 	});
 }
 
+// Phosphor: the framebuffer as MiSTer's own terminal has it (after the shell changed its mode with
+// fb_cmd1), for running a script the way the Scripts menu does
+void video_fb_console()
+{
+	fb_write_module_params();
+	video_fb_enable(1);
+}
+
 void video_fb_enable(int enable, int n)
 {
 	PROFILE_FUNCTION();
