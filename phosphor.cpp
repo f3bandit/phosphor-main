@@ -2,7 +2,7 @@
 // around it. Part of phosphor-main (a fork of MiSTer-devel/Main_MiSTer), GPL-3.0 like Main.
 //
 // Unix socket /tmp/phosphor-main.sock (root only), one command per line, one JSON reply per line:
-//   hello                  {"ok":true,"api":1,"name":"phosphor-main"}
+//   hello                  {"ok":true,"api":2,"name":"phosphor-main","pads":true}
 //   status                 core, menu core or not, OSD visible, framebuffer shown, who owns the screen
 //   screen phosphor|main   Phosphor takes the screen in the menu core (Linux framebuffer shown, Main's
 //                          menu ignores keys) or gives it back. Ownership belongs to this connection:
