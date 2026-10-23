@@ -22,12 +22,19 @@ static const char *got(int s) { for (int i = 0; i < 5; i++) phosphor_poll(); int
 int main() {
 	phosphor_poll();
 	int a = conn(), b = conn();
-	say(a, "hello"); CHECK(strstr(got(a), "\"api\":1"), "hello");
+	say(a, "hello"); CHECK(strstr(got(a), "\"api\":2") && strstr(rb, "\"pads\":true"), "hello");
 	say(a, "status"); CHECK(strstr(got(a), "\"owner\":\"main\""), "status: Main owns the screen");
 	say(a, "screen phosphor"); CHECK(strstr(got(a), "\"ok\":true") && g_screen_req == 1, "screen phosphor -> framebuffer on");
 	say(b, "screen phosphor"); CHECK(strstr(got(b), "another client"), "second client can't take it");
 	say(b, "subscribe"); got(b);
 	CHECK(phosphor_filter_key(KEY_UP) == 0, "menu core: keys swallowed while Phosphor owns the screen");
+	// controllers: Main's buttons go to the shell, held directions repeat
+	CHECK(phosphor_pad(0x08, 1) == 1 && strstr(got(a), "\"event\":\"pad\",\"b\":\"up\",\"p\":1"), "pad: up pressed -> event to the shell");
+	usleep(500000); CHECK(strstr(got(a), "\"b\":\"up\",\"p\":2"), "pad: held up repeats");
+	CHECK(phosphor_pad(0x08, 0) == 1 && strstr(got(a), "\"b\":\"up\",\"p\":0"), "pad: up released");
+	usleep(400000); CHECK(!strstr(got(a), "\"p\":2"), "pad: no repeat after release");
+	CHECK(phosphor_pad(0x100, 1) == 1 && strstr(got(a), "\"b\":\"x\""), "pad: X goes too (MiSTer's terminal keys don't have it)");
+	phosphor_pad(0x100, 0); got(a);
 	CHECK(phosphor_filter_key(KEY_F12) == 0 && phosphor_filter_key(KEY_F12 | UPSTROKE) == 0, "menu core: menu button swallowed");
 	CHECK(strstr(got(b), "menu_button"), "menu button event sent");
 	g_fb = 0; got(b); CHECK(g_fb == 1, "framebuffer turned back on if Main switched it off");
