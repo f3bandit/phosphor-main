@@ -13,7 +13,7 @@
 #define KEY_F12 88
 #define KEY_UP 103
 extern int g_menu, g_osd, g_fb, g_screen_req; extern char g_core[64], g_loaded[512];
-extern int g_ext, g_card_present, g_card_busy_polls, g_pad_cmds[8], g_pad_ncmd; extern uint16_t g_ext_mode; extern uint8_t g_card[];
+extern int g_vt, g_fbcon; extern int g_ext, g_card_present, g_card_busy_polls, g_pad_cmds[8], g_pad_ncmd; extern uint16_t g_ext_mode; extern uint8_t g_card[];
 static int conn() { int s = socket(AF_UNIX, SOCK_STREAM, 0); struct sockaddr_un a = {}; a.sun_family = AF_UNIX; strcpy(a.sun_path, getenv("PHOSPHOR_MAIN_SOCK")); assert(!connect(s, (struct sockaddr *)&a, sizeof a)); fcntl(s, F_SETFL, O_NONBLOCK); return s; }
 static void say(int s, const char *l) { char b[600]; snprintf(b, sizeof b, "%s\n", l); write(s, b, strlen(b)); }
 static char rb[8192];
@@ -22,7 +22,7 @@ static const char *got(int s) { for (int i = 0; i < 5; i++) phosphor_poll(); int
 int main() {
 	phosphor_poll();
 	int a = conn(), b = conn();
-	say(a, "hello"); CHECK(strstr(got(a), "\"api\":2") && strstr(rb, "\"pads\":true"), "hello");
+	say(a, "hello"); CHECK(strstr(got(a), "\"api\":3") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true"), "hello");
 	say(a, "status"); CHECK(strstr(got(a), "\"owner\":\"main\""), "status: Main owns the screen");
 	say(a, "screen phosphor"); CHECK(strstr(got(a), "\"ok\":true") && g_screen_req == 1, "screen phosphor -> framebuffer on");
 	say(b, "screen phosphor"); CHECK(strstr(got(b), "another client"), "second client can't take it");
@@ -35,6 +35,17 @@ int main() {
 	usleep(400000); CHECK(!strstr(got(a), "\"p\":2"), "pad: no repeat after release");
 	CHECK(phosphor_pad(0x100, 1) == 1 && strstr(got(a), "\"b\":\"x\""), "pad: X goes too (MiSTer's terminal keys don't have it)");
 	phosphor_pad(0x100, 0); got(a);
+	// scripts, the way MiSTer's Scripts menu runs them
+	say(b, "script /media/phtest/t.sh"); CHECK(strstr(got(b), "take the screen first"), "script: only the screen's owner");
+	say(a, "script /etc/passwd"); CHECK(strstr(got(a), "no such script"), "script: only under /media");
+	say(a, "script /media/phtest/../t.sh"); CHECK(strstr(got(a), "no such script"), "script: no ..");
+	say(a, "script /media/phtest/t.sh"); CHECK(strstr(got(a), "\"ok\":true") && g_vt == 2 && g_fbcon == 1, "script: MiSTer's terminal on tty2");
+	say(a, "script /media/phtest/t.sh"); CHECK(strstr(got(a), "a script is running"), "script: one at a time");
+	CHECK(phosphor_pad(0x10, 1) == 0, "script running: buttons are the terminal's keys");
+	usleep(200000); got(a);                                    // (agetty isn't here: the child ends at once)
+	CHECK(phosphor_filter_key(KEY_UP) == 0, "script: keys aren't Main's menu's");
+	{ int r = phosphor_pad(0x10, 1); const char *e = got(a); CHECK(r == 1 && strstr(e, "\"event\":\"script_done\",\"status\":") && g_vt == 1, "press any key -> done event, tty1 again"); }
+	phosphor_pad(0x10, 0); got(a);
 	CHECK(phosphor_filter_key(KEY_F12) == 0 && phosphor_filter_key(KEY_F12 | UPSTROKE) == 0, "menu core: menu button swallowed");
 	CHECK(strstr(got(b), "menu_button"), "menu button event sent");
 	g_fb = 0; got(b); CHECK(g_fb == 1, "framebuffer turned back on if Main switched it off");

@@ -10,6 +10,9 @@ char is_menu() { return g_menu; }
 char user_io_osd_is_visible() { return g_osd; }
 char *user_io_get_core_name(int) { return g_core; }
 int video_fb_state() { return g_fb; }
+int g_vt = 1, g_fbcon;
+void video_fb_console() { g_fbcon++; }
+int video_chvt(int n) { if (n) g_vt = n; return g_vt; }
 int fpga_load_rbf(const char *n, const char *, const char *) { snprintf(g_loaded, sizeof(g_loaded), "rbf:%s", n); return 0; }
 int xml_load(const char *x) { snprintf(g_loaded, sizeof(g_loaded), "xml:%s", x); return 0; }
 int isXmlName(const char *p) { const char *e = strrchr(p, '.'); return e && (!strcasecmp(e, ".mgl") || !strcasecmp(e, ".mra")) ? 2 : 0; }
