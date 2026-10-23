@@ -13,7 +13,8 @@
 //   sheet on|off           in a game, a short menu-button press goes to Phosphor (event), a long one
 //                          (0.7 s) opens the OSD as usual; off: the OSD as usual
 //   launch <path>          load a core (.rbf) or a .mgl/.mra, like MiSTer_cmd load_core (under /media only)
-//   (Main's OSD list also has "Launch Phosphor", under Video processing: phosphor_start)
+//   (Main's OSD has "Launch Phosphor": first on MiSTer's System page, and on a core's System page under
+//   Video processing; holding the menu button 2 s in MiSTer's menu does the same: phosphor_start)
 //   subscribe              this connection also gets events:
 //                          {"event":"core","name":"SNES"} {"event":"menu_button"} {"event":"osd","open":true}
 //                          {"event":"show"}: Launch Phosphor was chosen in Main's menu while the shell
@@ -863,6 +864,19 @@ uint32_t phosphor_filter_key(uint32_t c)
 {
 	if (!c) return c;
 	uint32_t key = c & ~UPSTROKE;
+
+	// MiSTer's own menu, after Phosphor gave it the screen: holding the menu button 2 s goes back to Phosphor
+	static unsigned long menu_down;
+	if (owner < 0 && is_menu() && !script_state && key == KEY_F12 && phosphor_installed())
+	{
+		if (!(c & UPSTROKE)) { if (!menu_down) menu_down = GetTimer(0); }
+		else
+		{
+			int held = menu_down && GetTimer(0) - menu_down >= 2000;
+			menu_down = 0;
+			if (held && phosphor_start()) return 0;
+		}
+	}
 
 	if (script_state == 2 && (c & UPSTROKE)) { script_finish(); return 0; }   // "press any key"
 	if (script_state) return 0;                // the keyboard types into the script's terminal

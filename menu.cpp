@@ -1691,7 +1691,7 @@ void HandleUI(void)
 				}
 				else if (is_menu())
 				{
-					menusub = 6;
+					menusub = phosphor_installed() ? 7 : 6;      // Phosphor: Launch Phosphor first
 					SelectFile("", 0, SCANO_CORES, MENU_CORE_FILE_SELECTED1, MENU_SYSTEM1);
 				}
 				else if (is_minimig())
@@ -7431,7 +7431,13 @@ void HandleUI(void)
 		OsdSetTitle("System Settings", OSD_ARROW_LEFT);
 		menumask = 0x7F;
 
-		OsdWrite(m++);
+		// Phosphor: back to Phosphor, the first line (menusub 7: the list wraps, so it's above Storage)
+		if (phosphor_installed())
+		{
+			menumask |= 0x80;
+			OsdWrite(m++, " Launch Phosphor           \x16", menusub == 7);
+		}
+		else OsdWrite(m++);
 		sprintf(s, "       MiSTer v%s", version + 5);
 		{
 			char str[8] = {};
@@ -7566,6 +7572,10 @@ void HandleUI(void)
 
 			case 6:
 				menustate = MENU_NONE1;
+				break;
+
+			case 7:
+				if (phosphor_start()) menustate = MENU_NONE1;
 				break;
 			}
 		}
