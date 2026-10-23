@@ -437,6 +437,7 @@ static void script_poll(void)
 	{
 		script_status = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 		script_state = 2;                      // "Press any key to continue" is on the screen
+		unlink(BUSY_DIR "/script");            // the work is over: switching off at the prompt is fine
 	}
 }
 
