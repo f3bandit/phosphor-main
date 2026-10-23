@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <linux/vt.h>
+#include <linux/kd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -4306,6 +4307,9 @@ int video_chvt(int num)
 		int fd;
 		if ((fd = open("/dev/tty0", O_RDONLY | O_CLOEXEC)) >= 0)
 		{
+			// Phosphor: a console left in graphics mode (Phosphor's shell draws on the framebuffer)
+			// makes Linux ignore the switch, and VT_WAITACTIVE below would wait forever
+			ioctl(fd, KDSETMODE, KD_TEXT);
 			if (ioctl(fd, VT_ACTIVATE, cur_vt)) printf("ioctl VT_ACTIVATE fails\n");
 			if (ioctl(fd, VT_WAITACTIVE, cur_vt)) printf("ioctl VT_WAITACTIVE fails\n");
 			close(fd);
