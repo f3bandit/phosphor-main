@@ -150,15 +150,22 @@ static void event_all(const char *s)
 static int ext_present(void)
 {
 	if (!is_menu()) return 0;
+	// asked again (at most once a second) while the answer is "no": right after Main starts the core
+	// may not answer yet, and a "no" kept for good made phosphord load the core again (a restart)
+	static unsigned long next_probe;
+	if (ext_ver == 0 && CheckTimer(next_probe)) ext_ver = -1;
 	if (ext_ver < 0)
 	{
+		next_probe = GetTimer(1000);
 		// the core's answer to a word comes back with that same word (as with hps_io's own commands,
 		// e.g. UIO_GET_SDSTAT): the command word itself returns the first reply word
 		uint16_t id = spi_uio_cmd_cont(PH_ID);
 		uint16_t ver = spi_w(0);
 		DisableIO();
 		ext_ver = (id == 0x5048 && ver) ? ver : 0;
-		printf("phosphor: front ports %s\n", ext_ver ? "available" : "not in this menu core");
+		static int said = -1;
+		if (said != (ext_ver > 0)) printf("phosphor: front ports %s\n", ext_ver ? "available" : "not in this menu core");
+		said = ext_ver > 0;
 	}
 	return ext_ver > 0;
 }
