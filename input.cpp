@@ -1728,6 +1728,16 @@ static int mapping_set;
 
 static int mapping_current_key = 0;
 static int mapping_current_dev = -1;
+
+// Phosphor: MiSTer's own controller mapping (the menu's "Define joystick buttons"), run by Phosphor's
+// shell instead of the OSD (phosphor.cpp draws nothing; the shell shows the steps). Main's code below
+// records the buttons and writes the same mapping file as the OSD does.
+int phosphor_mapping = 0;               // the shell runs the mapping
+uint32_t phosphor_map_vidpid = 0;       // only this controller (vid << 16 | pid); 0: whichever is pressed first
+int input_map_running(void) { return mapping; }
+void input_map_jump(int to) { mapping_button = to; mapping_current_key = 0; }
+uint32_t input_map_dev_vidpid(void) { return mapping_dev >= 0 ? (((uint32_t)input[mapping_dev].vid << 16) | input[mapping_dev].pid) : 0; }
+const char *input_map_file(void);       // below: the menu mapping file of the device being mapped
 static advancedButtonMap *mapping_store = NULL;
 
 static uint32_t tmp_axis[4];
@@ -1853,6 +1863,8 @@ static char *get_map_name(int dev, int def)
 	else sprintfz(name, "%s_input_%s%s_v3.map", user_io_get_core_name(), id, input[dev].mod ? "_m" : "");
 	return name;
 }
+
+const char *input_map_file(void) { return mapping_dev >= 0 ? get_map_name(mapping_dev, 1) : ""; }
 
 static char *get_jkmap_name(int dev)
 {
@@ -3235,6 +3247,21 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 	}
 
 
+	// Phosphor runs the mapping: only the controller picked in Phosphor counts, and a button press on a
+	// stick step means "this controller has no such stick" (MiSTer's OSD asks for the keyboard's Space)
+	if (mapping && phosphor_mapping && mapping_type <= 1)
+	{
+		uint32_t vp = ((uint32_t)input[dev].vid << 16) | input[dev].pid;
+		if (phosphor_map_vidpid && vp != phosphor_map_vidpid) return;
+		if (ev->type == EV_KEY && ev->value == 1 && mapping_dev == dev &&
+			((mapping_button >= -4 && mapping_button < 0) || mapping_button == 23 || mapping_button == 24))
+		{
+			mapping_button = mapping_button < -2 ? -2 : mapping_button < 0 ? 0 : 25;
+			mapping_current_key = 0;
+			return;
+		}
+	}
+
 	//mapping
 
 	if (mapping && mapping_type == 3 && ev->type == EV_KEY)
@@ -3409,6 +3436,13 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 											input[dev].map[SYS_AXIS_MX + (mapping_button - (BUTTON_DPAD_COUNT + 1)) / 2] = ((input[dev].map[mapping_button] - KEY_EMU) / 2) | 0x20000;
 										}
 									}
+								}
+								// Phosphor: a button that's already used skips the buttons a controller may not have
+								// (X, Y, L, R, Select, Start); MiSTer's OSD asks for the keyboard's Space instead
+								else if (phosphor_mapping && mapping_button >= SYS_BTN_X && mapping_button <= SYS_BTN_START)
+								{
+									mapping_button++;
+									mapping_current_key = 0;
 								}
 							}
 						}
