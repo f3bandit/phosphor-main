@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <math.h>
 
+#include "phosphor.h"
 #include "hardware.h"
 #include "user_io.h"
 #include "spi.h"
@@ -4163,7 +4164,8 @@ void video_menu_bg(int n, int idle)
 			}
 		}
 
-		if (cfg.logo && logo && !idle)
+		// Phosphor: no MiSTer logo over Phosphor's wallpaper (stock Main, after uninstalling, shows it again)
+		if (cfg.logo && logo && !idle && !phosphor_installed())
 		{
 			imlib_context_set_image(logo);
 
