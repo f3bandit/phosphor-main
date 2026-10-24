@@ -3262,8 +3262,11 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 		}
 		uint32_t vp = ((uint32_t)input[dev].vid << 16) | input[dev].pid;
 		if (phosphor_map_vidpid && vp != phosphor_map_vidpid) return;
+		// (not the stick's own button, which some pads send as the stick moves, nor the D-pad: those
+		// would skip a stick that's there)
 		if (ev->type == EV_KEY && ev->value == 1 && mapping_dev == dev &&
-			((mapping_button >= -4 && mapping_button < 0) || mapping_button == 23 || mapping_button == 24))
+			((mapping_button >= -4 && mapping_button < 0) || mapping_button == 23 || mapping_button == 24) &&
+			ev->code != BTN_THUMBL && ev->code != BTN_THUMBR && !(ev->code >= BTN_DPAD_UP && ev->code <= BTN_DPAD_RIGHT))
 		{
 			mapping_button = mapping_button < -2 ? -2 : mapping_button < 0 ? 0 : 25;
 			mapping_current_key = 0;
