@@ -1855,6 +1855,38 @@ static char *get_unique_mapping(int dev, int force_unique = 0)
 	return str;
 }
 
+// Phosphor: a mapping saved without its sticks (the stick steps skipped or lost) leaves a controller's
+// sticks doing nothing in the menu and in every core. The sticks come from MiSTer's controller database
+// then, or else the usual axes the controller has (left X/Y; right RX/RY, or Z/RZ).
+static void phosphor_fill_sticks(int dev, int sub_dev)
+{
+	uint32_t *m = input[dev].mmap;
+	if (m[SYS_AXIS1_X] || m[SYS_AXIS1_Y] || m[SYS_AXIS_X] || m[SYS_AXIS_Y] || m[SYS_AXIS2_X] || m[SYS_AXIS2_Y]) return;
+	uint32_t g[sizeof(input[0].mmap) / sizeof(input[0].mmap[0])];
+	memset(g, 0, sizeof(g));
+	if (gcdb_map_for_controller(input[sub_dev].bustype, input[sub_dev].vid, input[sub_dev].pid, input[sub_dev].gcdb_version, pool[sub_dev].fd, g) &&
+		(g[SYS_AXIS1_X] || g[SYS_AXIS_X]))
+	{
+		for (int k = SYS_AXIS1_X; k <= SYS_AXIS_Y; k++) m[k] = g[k];
+		printf("phosphor: %04x:%04x map has no sticks: the controller database's\n", input[dev].vid, input[dev].pid);
+		return;
+	}
+	unsigned long abs_bits[(ABS_MAX + 8 * sizeof(long)) / (8 * sizeof(long))];
+	memset(abs_bits, 0, sizeof(abs_bits));
+	if (ioctl(pool[sub_dev].fd, EVIOCGBIT(EV_ABS, sizeof(abs_bits)), abs_bits) < 0) return;
+	auto has = [&](int c) -> bool {
+		if (!((abs_bits[c / (8 * sizeof(long))] >> (c % (8 * sizeof(long)))) & 1)) return false;
+		struct input_absinfo ai;
+		return ioctl(pool[sub_dev].fd, EVIOCGABS(c), &ai) >= 0 && ai.maximum - ai.minimum > 2;
+	};
+	if (!has(ABS_X) || !has(ABS_Y)) return;
+	m[SYS_AXIS1_X] = ABS_X | 0x20000;
+	m[SYS_AXIS1_Y] = ABS_Y | 0x20000;
+	if (has(ABS_RX) && has(ABS_RY)) { m[SYS_AXIS2_X] = ABS_RX | 0x20000; m[SYS_AXIS2_Y] = ABS_RY | 0x20000; }
+	else if (has(ABS_Z) && has(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
+	printf("phosphor: %04x:%04x map has no sticks: the controller's own axes\n", input[dev].vid, input[dev].pid);
+}
+
 static char *get_map_name(int dev, int def)
 {
 	static char name[1024];
@@ -3033,6 +3065,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				}
 			} else {
 				gcdb_show_string_for_ctrl_map(input[sub_dev].bustype, input[sub_dev].vid, input[sub_dev].pid, input[sub_dev].gcdb_version, pool[sub_dev].fd, input[sub_dev].name, input[dev].mmap);
+				phosphor_fill_sticks(dev, sub_dev);
 			}
 			if (!input[dev].mmap[SYS_BTN_OSD_KTGL + 2]) input[dev].mmap[SYS_BTN_OSD_KTGL + 2] = input[dev].mmap[SYS_BTN_OSD_KTGL + 1];
 
