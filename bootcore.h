@@ -12,6 +12,8 @@ char *loadLastcore();
 char *findCore(const char *name, char *coreName, int indent);
 void bootcore_init(const char *path);
 
+int find_core_rbf(const char *coreName, char *out, int outsz);
+
 extern char bootcoretype[64];
 extern int16_t btimeout;
 

@@ -10,6 +10,7 @@
 #include "../../menu.h"
 #include "../../cheats.h"
 #include "3do.h"
+#include "../physical_disc/physical_disc.h"
 
 static int need_reset = 0;
 uint32_t p3do_frame_cnt = 0;
@@ -109,16 +110,19 @@ static int p3do_load_rom(const char *basename, const char *name, int index)
 	return 0;
 }
 
-void p3do_set_image(int num, const char *filename)
+int p3do_set_image(int num, const char *filename)
 {
 	static char last_dir[1024] = {};
 
 	(void)num;
 
+	int phys = !strcmp(filename, PHYSICAL_DISC_SENTINEL);
+	int mounted = 0;
+
 	p3docdd.Unload();
 	p3docdd.Reset();
 
-	int same_game = 0;//*filename && *last_dir && !strncmp(last_dir, filename, strlen(last_dir));
+	int same_game = 0; //*filename && *last_dir && !strncmp(last_dir, filename, strlen(last_dir));
 	strcpy(last_dir, filename);
 	char *p = strrchr(last_dir, '/');
 	if (p) *p = 0;
@@ -132,9 +136,9 @@ void p3do_set_image(int num, const char *filename)
 
 		// load CD BIOS
 		int bios_loaded = 1;
-		if (!p3do_load_rom(filename, "cd_bios.rom", 0)) // from disk folder.
+		if (phys || !p3do_load_rom(filename, "cd_bios.rom", 0)) 
 		{
-			if (!p3do_load_rom(last_dir, "cd_bios.rom", 0)) // from parent folder.
+			if (phys || !p3do_load_rom(last_dir, "cd_bios.rom", 0)) 
 			{
 				sprintf(buf, "%s/boot.rom", HomeDir()); // from home folder.
 				if (!user_io_file_tx(buf))
@@ -142,14 +146,10 @@ void p3do_set_image(int num, const char *filename)
 					bios_loaded = 0;
 					Info("CD BIOS not found!", 4000);
 				}
-				else {
-					
-				}
 			}
 		}
 
-		// load kanji rom
-		if (bios_loaded) {
+		if (bios_loaded && !phys) {
 			if (!p3do_load_rom(filename, "kanji.rom", 3)) // from disk folder.
 			{
 				if (!p3do_load_rom(last_dir, "kanji.rom", 3)) // from parent folder.
@@ -164,11 +164,17 @@ void p3do_set_image(int num, const char *filename)
 	{
 		if (p3docdd.Load(filename) > 0)
 		{
+			toc_t disc_toc = {};
+			int audio_only = phys && !physical_disc_current_toc(&disc_toc) && physical_disc_toc_audio_only(&disc_toc);
+			mounted = 1;
 			p3docdd.SendData = p3do_send_data;
 
-			if (!same_game)
+			if (!audio_only && !same_game)
 			{
-				p3do_mount_save(filename);
+
+				char save_name[64] = "physical_disc";
+				if (phys) physical_disc_save_name(PHYSICAL_DISC_DISC_3DO, save_name, sizeof(save_name));
+				p3do_mount_save(phys ? save_name : filename);
 			}
 
 			if (p3docdd.GetDiscInfo((uint8_t*)buf) > 0)
@@ -179,6 +185,8 @@ void p3do_set_image(int num, const char *filename)
 	}
 
 	user_io_status_set("[0]", 0);
+
+	return mounted;
 }
 
 void p3do_reset() {

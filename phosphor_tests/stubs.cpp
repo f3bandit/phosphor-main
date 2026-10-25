@@ -79,3 +79,17 @@ uint16_t fpga_spi(uint16_t v)
 	return 0;
 }
 unsigned long CheckTimer(unsigned long t) { return GetTimer(0) > t; }
+// controller mapping run by Phosphor (input.cpp): nothing is being mapped in these tests
+struct advancedButtonMap;
+int phosphor_mapping = 0;
+uint32_t phosphor_map_vidpid = 0;
+int phosphor_map_cancel = 0;
+char joy_bnames[32][32];
+int joy_bcount = 0;
+int input_map_running(void) { return 0; }
+void input_map_jump(int) {}
+uint32_t input_map_dev_vidpid(void) { return 0; }
+const char *input_map_file(void) { return ""; }
+int get_map_button() { return 0; }
+void start_map_setting(int, int, advancedButtonMap *) {}
+void finish_map_setting(int) {}
