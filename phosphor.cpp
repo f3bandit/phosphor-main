@@ -634,7 +634,11 @@ static void command(int i, char *line)
 		video_chvt(1);
 		video_fb_enable(1);
 		send_line(i, video_fb_state() ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"this core can't show Phosphor's screen\"}");
-		if (!video_fb_state()) ingame_client = -1;
+		if (!video_fb_state())
+		{
+			ingame_client = -1;
+			send_line(i, "{\"event\":\"ingame\",\"on\":false,\"error\":\"this core can't show Phosphor's screen\"}");
+		}
 	}
 	else if (!strcmp(line, "ingame osd"))
 	{
