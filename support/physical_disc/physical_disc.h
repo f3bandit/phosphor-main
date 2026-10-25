@@ -112,6 +112,7 @@ void physical_disc_forget_disc(void);
 int physical_disc_disc_label(char *out, int outsz);
 
 int physical_disc_disc_serial(char *out, int outsz);
+int physical_disc_data_lba(void);   // Phosphor: first data sector (drive LBA), -1 none
 int physical_disc_save_name(physical_disc_disc_t type, char *out, int outsz);
 
 const char *physical_disc_console_name(physical_disc_disc_t t);

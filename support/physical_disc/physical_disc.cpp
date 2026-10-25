@@ -1900,6 +1900,12 @@ int physical_disc_disc_label(char *out, int outsz)
 	return strlen(out);
 }
 
+// Phosphor: the first data sector's drive LBA (-1: none), for phosphor_disc.cpp's Saturn/Mega-CD codes
+int physical_disc_data_lba(void)
+{
+	return drv.data_lba0;
+}
+
 int physical_disc_disc_serial(char *out, int outsz)
 {
 	static const char *pfx[] = {

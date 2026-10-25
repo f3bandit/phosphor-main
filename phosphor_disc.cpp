@@ -104,7 +104,23 @@ static void *read_disc(void *)
 			r.type = physical_disc_identify();
 			if (r.type != PHYSICAL_DISC_DISC_AUDIO && r.type != PHYSICAL_DISC_DISC_NONE)
 			{
-				physical_disc_disc_serial(r.serial, sizeof(r.serial));
+				physical_disc_disc_serial(r.serial, sizeof(r.serial));       // PlayStation (SCUS-94300)
+				// Saturn and Mega-CD: the product number in the first data sector's header, the way
+				// phosphord reads it from an image (ident.c disc_serial), so the two match
+				uint8_t raw[2352];
+				int lba = physical_disc_data_lba();
+				if (!r.serial[0] && lba >= 0 && (r.type == PHYSICAL_DISC_DISC_SATURN || r.type == PHYSICAL_DISC_DISC_MEGACD)
+					&& !physical_disc_read_sector(lba, raw, NULL))
+				{
+					const uint8_t *u = raw + 16;
+					int off = r.type == PHYSICAL_DISC_DISC_SATURN ? 0x20 : 0x180, len = r.type == PHYSICAL_DISC_DISC_SATURN ? 10 : 14;
+					int e = len;
+					while (e > 0 && (u[off + e - 1] == ' ' || !u[off + e - 1])) e--;
+					int b = 0, o = 0;
+					while (b < e && u[off + b] == ' ') b++;
+					for (int k = b; k < e && o + 1 < (int)sizeof(r.serial); k++) r.serial[o++] = (u[off + k] >= 0x20 && u[off + k] < 0x7f) ? u[off + k] : '?';
+					r.serial[o] = 0;
+				}
 				physical_disc_disc_label(r.label, sizeof(r.label));
 				snprintf(r.region, sizeof(r.region), "%s", physical_disc_region_name(physical_disc_region()));
 			}
