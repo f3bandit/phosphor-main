@@ -18,6 +18,7 @@
 //                          game, until off. The game keeps running behind it. Belongs to this connection
 //                          (it becomes the screen's owner); a core change or the connection closing ends it,
 //                          and {"event":"ingame","on":false} tells it when Main took the screen back.
+//   ingame osd             from Phosphor's in-game menu to MiSTer's menu (the core's own options)
 //   disc / disc eject      the dock's CD/DVD drive: what's in it, and open the tray (phosphor_disc.cpp);
 //                          subscribers get {"event":"disc",...} when it changes
 //   launch <path>          load a core (.rbf) or a .mgl/.mra, like MiSTer_cmd load_core (under /media only)
@@ -634,6 +635,13 @@ static void command(int i, char *line)
 		video_fb_enable(1);
 		send_line(i, video_fb_state() ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"this core can't show Phosphor's screen\"}");
 		if (!video_fb_state()) ingame_client = -1;
+	}
+	else if (!strcmp(line, "ingame osd"))
+	{
+		// from Phosphor's in-game menu to MiSTer's own (the core's options): Phosphor's screen off, the OSD open
+		if (ingame_client == i) { ingame_client = -1; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
+		if (!is_menu() && !user_io_osd_is_visible()) menu_key_set(KEY_F12);
+		send_line(i, "{\"ok\":true}");
 	}
 	else if (!strcmp(line, "ingame off"))
 	{

@@ -14,6 +14,7 @@
 //                    "system":"PlayStation","serial":"SCUS-94300","label":"...","region":"US",
 //                    "tracks":N,"playable":true,"mgl":"PSX"}
 //   disc eject      opens the tray (also when no disc is in)
+//   disc off|on     Phosphor's Settings › Discs: off, the drive isn't watched or read at all ("state":"off")
 //   event           {"event":"disc",...the same...} to subscribers when it changes
 #include "phosphor_disc.h"
 #include "user_io.h"
@@ -45,6 +46,7 @@ static int worker_joinable;
 static int identified;            // the disc in the tray now has been read (until the tray empties)
 static unsigned long next_poll;
 static char last_sent[512];
+static int disc_on = 1;          // Settings › Discs (the shell sends it when it connects)
 
 int phosphor_disc_busy(void) { return working; }
 
@@ -193,6 +195,14 @@ static int eject(void)
 int phosphor_disc_command(const char *line, char *out, size_t n)
 {
 	if (!strcmp(line, "disc")) { phosphor_disc_status(out, n, 0); return 1; }
+	if (!strcmp(line, "disc off") || !strcmp(line, "disc on"))
+	{
+		disc_on = line[6] == 'n';
+		if (!disc_on && !working) { identified = 0; physical_disc_tray_release(); set_state(0, "off"); }
+		else if (disc_on) { identified = 0; next_poll = 0; set_state(0, "none"); }
+		snprintf(out, n, "{\"ok\":true}");
+		return 1;
+	}
 	if (!strcmp(line, "disc eject"))
 	{
 		if (working) { snprintf(out, n, "{\"ok\":false,\"error\":\"the drive is reading the disc, try again in a moment\"}"); return 1; }
@@ -207,7 +217,14 @@ int phosphor_disc_command(const char *line, char *out, size_t n)
 void phosphor_disc_poll(void (*send_event)(const char *))
 {
 	if (worker_joinable && !working) { pthread_join(worker, NULL); worker_joinable = 0; }
-	if (!is_menu() || working || !CheckTimer(next_poll)) goto events;
+	if (!disc_on && !working)
+	{
+		pthread_mutex_lock(&lk);
+		int is_off = !strcmp(cur.state, "off");
+		pthread_mutex_unlock(&lk);
+		if (!is_off) { identified = 0; physical_disc_tray_release(); set_state(0, "off"); }
+	}
+	if (!disc_on || !is_menu() || working || !CheckTimer(next_poll)) goto events;
 	next_poll = GetTimer(1000);
 	{
 		physical_disc_tray_t t = physical_disc_tray_status();
