@@ -1032,9 +1032,10 @@ void FileGenerateSavestatePath(const char *name, char* out_name, int sufx)
 
 	char *e = strrchr(fname, '.');
 	if (e) e[0] = 0;
+	else e = fname + strlen(fname);
 
 	if(sufx) sprintf(e, "_%d.ss", sufx);
-	else strcat(e, ".ss");
+	else strcpy(e, ".ss");
 }
 
 uint32_t getFileType(const char *name)
@@ -1856,9 +1857,25 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 		}
 
 		printf("Got %d dir entries\n", flist_nDirEntries());
-		if (!flist_nDirEntries()) return 0;
 
 		std::sort(DirItem.begin(), DirItem.end(), DirentComp());
+
+		if ((options & SCANO_CORES) && extension && strcasestr(extension, "RBF"))
+		{
+			char row[256];
+			if (physical_disc_menu_row(row, sizeof(row)))
+			{
+				direntext_t d;
+				memset(&d, 0, sizeof(d));
+				snprintf(d.de.d_name, sizeof(d.de.d_name), "%s", PHYSICAL_DISC_MENU_SENTINEL);
+				d.de.d_type = DT_REG;
+				snprintf(d.altname, sizeof(d.altname), "%s", row);
+				DirItem.push_back(d);
+			}
+		}
+
+		if (!flist_nDirEntries()) return 0;
+
 		if (file_name[0])
 		{
 			int pos = -1;
@@ -2068,6 +2085,20 @@ char* flist_Path()
 int flist_nDirEntries()
 {
 	return DirItem.size();
+}
+
+void flist_select_by_name(const char *name)
+{
+	if (!name || !name[0]) return;
+	for (int i = 0; i < (int)DirItem.size(); i++)
+	{
+		if (!strcmp(DirItem[i].de.d_name, name))
+		{
+			iSelectedEntry = i;
+			flist_center_selected();
+			return;
+		}
+	}
 }
 
 int flist_iFirstEntry()

@@ -8,6 +8,7 @@
 #include "../../user_io.h"
 
 #include "../chd/mister_chd.h"
+#include "../physical_disc/physical_disc.h"
 #include "pcecd.h"
 
 #define PCECD_DATA_IO_INDEX 2
@@ -258,7 +259,20 @@ int pcecdd_t::Load(const char *filename)
 	Unload();
 
 	const char *ext = filename+strlen(filename)-4;
-	if (!strncasecmp(".cue", ext, 4))
+	if (!strcmp(filename, PHYSICAL_DISC_SENTINEL))
+	{
+
+
+
+
+		if (physical_disc_open(NULL) || physical_disc_load_toc(&this->toc))
+		{
+			physical_disc_close();
+			printf("\x1b[32mPCECD: no readable physical disc\n\x1b[0m");
+			return -1;
+		}
+		physical_disc_prewarm_blocking();
+	} else if (!strncasecmp(".cue", ext, 4))
 	{
 		if (LoadCUE(filename)) return -1;
 	} else if (!strncasecmp(".chd", ext, 4)) {
@@ -280,19 +294,25 @@ int pcecdd_t::Load(const char *filename)
 		this->toc.tracks[this->toc.last].start = this->toc.end;
 		this->loaded = 1;
 
-		memcpy(subcode_name, filename, strlen(filename));
-		subcode_name[strlen(filename)] = 0x00;
-		memcpy(&subcode_name[strlen(subcode_name) - 4], ".sub", 4);
 
-		this->subcode_file = fopen(getFullPath(subcode_name), "r");
+
+
+		if (!this->toc.phys)
+		{
+			memcpy(subcode_name, filename, strlen(filename));
+			subcode_name[strlen(filename)] = 0x00;
+			memcpy(&subcode_name[strlen(subcode_name) - 4], ".sub", 4);
+
+			this->subcode_file = fopen(getFullPath(subcode_name), "r");
+
+			if (this->subcode_file != NULL) {
+				printf("\x1b[32mPCECD: SUBCODE FILE located = %s\n\x1b[0m", subcode_name);
+			} else {
+				printf("\x1b[32mPCECD: No SUBCODE file located.  Searched for '%s'.\n\x1b[0m", subcode_name);
+			}
+		}
 
 		printf("\x1b[32mPCECD: CD mounted , last track = %u\n\x1b[0m", this->toc.last);
-
-		if (this->subcode_file != NULL) {
-			printf("\x1b[32mPCECD: SUBCODE FILE located = %s\n\x1b[0m", subcode_name);
-		} else {
-			printf("\x1b[32mPCECD: No SUBCODE file located.  Searched for '%s'.\n\x1b[0m", subcode_name);
-		}
 		return 1;
 	}
 
@@ -303,7 +323,10 @@ void pcecdd_t::Unload()
 {
 	if (this->loaded)
 	{
-		if (this->toc.chd_f)
+		if (this->toc.phys)
+		{
+			physical_disc_close();
+		} else if (this->toc.chd_f)
 		{
 			chd_close(this->toc.chd_f);
 			this->toc.chd_f = NULL;
@@ -360,8 +383,8 @@ void pcecdd_t::Update() {
 	buf[1] = 0 | 0x80;
 	buf[2] = this->state == PCECD_STATE_PAUSE ? 2 : (this->state == PCECD_STATE_PLAY ? 0 : 3);
 	buf[3] = 0;
-	buf[4] = BCD(this->index + 1);	// Track
-	buf[5] = 1;	// Pregap = index 0, TOC points to index 1; very few audio discs have more indexes
+	buf[4] = BCD(this->index + 1); // Track
+	buf[5] = 1; // Pregap = index 0, TOC points to index 1; very few audio discs have more indexes
 
 	int lba_rel = this->lba - this->toc.tracks[this->index].start;
 	LBAToMSF(lba_rel, &msf);
@@ -494,6 +517,8 @@ void pcecdd_t::Update() {
 		{
 			if (this->CDDAMode == PCECD_CDDAMODE_LOOP) {
 				this->lba = this->CDDAStart;
+				if (this->toc.phys)
+					physical_disc_seek_hint(this->lba);
 			}
 			else {
 				this->state = PCECD_STATE_IDLE;
@@ -757,6 +782,9 @@ void pcecdd_t::CommandExec() {
 
 		this->index = index;
 
+		if (this->toc.phys && !this->toc.tracks[index].type)
+			physical_disc_seek_hint(new_lba);
+
 		this->CDDAStart = new_lba;
 		this->CDDAEnd = this->toc.end;
 		this->CDDAMode = comm[1];
@@ -839,7 +867,7 @@ void pcecdd_t::CommandExec() {
 		CommandError(SENSEKEY_ILLEGAL_REQUEST, NSE_INVALID_COMMAND, 0, 0);
 
 		printf("\x1b[32mPCECD: Command undefined, [0] = %02X, [1] = %02X, [2] = %02X, [3] = %02X, [4] = %02X, [5] = %02X\n\x1b[0m", comm[0], comm[1], comm[2], comm[3], comm[4], comm[5]);
-		
+
 		has_status = 0;
 		SendStatus(MAKE_STATUS(PCECD_STATUS_CHECK_COND, 0));
 
@@ -909,7 +937,12 @@ void pcecdd_t::ReadData(uint8_t *buf)
 {
 	if (this->toc.tracks[this->index].type && (this->lba >= 0))
 	{
-		if (this->toc.chd_f)
+		if (this->toc.phys)
+		{
+
+			physical_disc_read_data2048(this->lba, buf);
+		}
+		else if (this->toc.chd_f)
 		{
 			int s_offset = 0;
 			if (this->toc.tracks[this->index].sector_size != 2048)
@@ -932,11 +965,17 @@ void pcecdd_t::ReadData(uint8_t *buf)
 
 int pcecdd_t::ReadCDDA(uint8_t *buf)
 {
-	this->audioLength = 2352;// 2352 + 2352 - this->audioOffset;
-	this->audioOffset = 0;// 2352;
+	this->audioLength = 2352; // 2352 + 2352 - this->audioOffset;
+	this->audioOffset = 0; // 2352;
 
 
-	if (this->toc.chd_f)
+	if (this->toc.phys)
+	{
+
+
+		physical_disc_read_sector(this->lba, buf, NULL);
+	}
+	else if (this->toc.chd_f)
 	{
 		mister_chd_read_sector(this->toc.chd_f, this->lba + this->toc.tracks[this->index].offset, 0, 0, this->audioLength, buf, this->chd_hunkbuf, &this->chd_hunknum);
 		for (int swapidx = 0; swapidx < this->audioLength; swapidx += 2)
@@ -960,33 +999,33 @@ void pcecdd_t::ReadSubcode(int lba, uint8_t* buf)
 	int i, j;
 	uint8_t msb, lsb, x;
 
-	buf[0] = 0x00;	// synchronization word while playing
+	buf[0] = 0x00; // synchronization word while playing
 	buf[1] = 0x80;
 
-	if ((lba != last_lba) && (this->latency == 0)) {	// continue sending old subcode data until head arrives at new location
-		if (this->subcode_file) {			// read subcode data from file if it exists
+	if ((lba != last_lba) && (this->latency == 0)) { // continue sending old subcode data until head arrives at new location
+		if (this->subcode_file) { // read subcode data from file if it exists
 			fseek(this->subcode_file, (lba * 96), SEEK_SET);
 			fread(subc, 96, 1, this->subcode_file);
 		}
-		else						// else synthesize subcode Q data
+		else // else synthesize subcode Q data
 		{
 			memset((void*)subc, 0x00, 96);
-			subc[12] = 1;				// Timing Data
-			subc[13] = BCD(this->index + 1);	// Track
-			subc[14] = 1;				// Index (Pregap = index 0, Music = index 1; assume 1)
+			subc[12] = 1; // Timing Data
+			subc[13] = BCD(this->index + 1); // Track
+			subc[14] = 1; // Index (Pregap = index 0, Music = index 1; assume 1)
 
 			int lba_rel = this->lba - this->toc.tracks[this->index].start;
 			LBAToMSF(lba_rel, &msf);
-			subc[15] = BCD(msf.m);			// M:S:F offset from start of track
+			subc[15] = BCD(msf.m); // M:S:F offset from start of track
 			subc[16] = BCD(msf.s);
 			subc[17] = BCD(msf.f);
 
 			LBAToMSF(this->lba + 150, &msf);
-			subc[19] = BCD(msf.m);			// M:S:F offset from start of disc session
+			subc[19] = BCD(msf.m); // M:S:F offset from start of disc session
 			subc[20] = BCD(msf.s);
 			subc[21] = BCD(msf.f);
 
-			msb = 0;				// Calculate subcode-Q checksum data
+			msb = 0; // Calculate subcode-Q checksum data
 			lsb = 0;
 			for (i = 12; i < 22; i++) {
 				x = subc[i] ^ msb;
@@ -1008,7 +1047,7 @@ void pcecdd_t::ReadSubcode(int lba, uint8_t* buf)
 	for (i = 0; i < 96; i++)
 	{
 		int code = 0;
-		for (j = 0; j < 8; j++)	// subcode P = 0; subcode Q = 1, etc.
+		for (j = 0; j < 8; j++) // subcode P = 0; subcode Q = 1, etc.
 		{
 			uint8_t bits = subc[(j * 12) + (i >> 3)] >> (7 - (i & 7));
 			code |= ((bits & 1) << (7 - j));

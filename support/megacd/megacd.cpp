@@ -10,7 +10,9 @@
 #include "../../hardware.h"
 #include "../../menu.h"
 #include "../../cheats.h"
+#include "../../cfg.h"
 #include "megacd.h"
+#include "../physical_disc/physical_disc.h"
 
 #define SAVE_IO_INDEX 5 // fake download to trigger save loading
 
@@ -25,10 +27,43 @@ void mcd_poll()
 	static uint32_t poll_timer = 0;
 	static uint8_t last_req = 255;
 	static uint8_t adj = 0;
+	static uint32_t swap_close_at = 0;
 
-	if (!poll_timer || CheckTimer(poll_timer))
+	if (cdd.is_phys() && physical_disc_swap_consume() && cdd.SwapPhys())
 	{
-		if (!cdd.isData && cdd.status == CD_STAT_PLAY && cdd.latency == 0) {
+		cdd.isData = 1;
+		cdd.status = CD_STAT_OPEN;      
+		cdd.latency = 0;
+		swap_close_at = GetTimer(PHYSICAL_DISC_SWAP_DWELL_MS);
+	}
+	if (cdd.is_phys() && swap_close_at && CheckTimer(swap_close_at))   
+	{
+		swap_close_at = 0;
+		cdd.status = cdd.loaded ? CD_STAT_STOP : CD_STAT_NO_DISC;   
+		cdd.latency = 10;
+	}
+
+	int paced = !cdd.isData && cdd.status == CD_STAT_PLAY && cdd.latency == 0 && cfg.megacd_cdda_paced;
+	if (paced && poll_timer && CheckTimer(poll_timer) && !mcd_can_send_data(0))   // 0: audio track (isData is 0)
+	{
+		// MEGACD_CDDA_PACED=1: the audio buffer is full. Hold back the status too, and try again in 1 ms,
+		// so that every status (CDD interrupt) comes with exactly one sector of subcode, as on a real drive.
+		poll_timer = GetTimer(1);
+	}
+	else if (!poll_timer || CheckTimer(poll_timer))
+	{
+		if (paced) {
+			// MEGACD_CDDA_PACED=1: one audio sector (and its subcode) with each status, every 13.25 ms
+			// (13,13,13,14), close to the 75 sectors per second of a real drive, so the subcode reaches the
+			// BIOS at a steady rate (CD+G). The next poll is set from the previous one, so a late poll is
+			// caught up; slightly faster than 75 Hz so the audio buffer stays filled.
+			static uint8_t paced_adj = 0;
+			uint32_t next = poll_timer + 13 + (paced_adj == 3 ? 1 : 0);
+			if (++paced_adj >= 4) paced_adj = 0;
+			if (CheckTimer(next + 50)) next = GetTimer(13);
+			poll_timer = next;
+			adj = 0;
+		} else if (!cdd.isData && cdd.status == CD_STAT_PLAY && cdd.latency == 0) {
 			// Send audio sectors faster so buffer stays filled
 			poll_timer = GetTimer(10);
 			adj = 0;
@@ -116,16 +151,33 @@ static int mcd_load_rom(const char *basename, const char *name, int sub_index)
 	return 0;
 }
 
-void mcd_set_image(int num, const char *filename)
+int mcd_set_image(int num, const char *filename)
 {
 	static char last_dir[1024] = {};
 
 	(void)num;
 
 	cdd.Unload();
+	physical_disc_swap_enable(0);              
 	cdd.status = CD_STAT_OPEN;
 
+	int phys = !strcmp(filename, PHYSICAL_DISC_SENTINEL);
+	int audio_only = 0;
+	physical_disc_region_t disc_region = PHYSICAL_DISC_REGION_UNKNOWN;
+
+	if (phys && !physical_disc_open(NULL))
+	{
+		toc_t disc_toc = {};
+		if (!physical_disc_load_toc(&disc_toc)) audio_only = physical_disc_toc_audio_only(&disc_toc);
+		if (!audio_only) disc_region = physical_disc_region();
+
+		if (!physical_disc_disc_present()) physical_disc_close();
+	}
+
 	int same_game = *filename && *last_dir && !strncmp(last_dir, filename, strlen(last_dir));
+
+	if (phys) same_game = 0;
+
 	strcpy(last_dir, filename);
 	char *p = strrchr(last_dir, '/');
 	if (p) *p = 0;
@@ -140,38 +192,93 @@ void mcd_set_image(int num, const char *filename)
 		mcd_reset();
 
 		loaded = 0;
-		strcpy(buf, last_dir);
-		char *p = strrchr(buf, '/');
-		if (p)
+		if (phys)
 		{
-			strcpy(p + 1, "cd_bios.rom");
-			loaded = user_io_file_tx(buf);
+
+			const char *rn = physical_disc_region_name(disc_region);
+			if (*rn)
+			{
+				sprintf(buf, "%s/boot_%s.rom", HomeDir(), rn);
+				loaded = user_io_file_tx(buf);
+				if (!loaded)
+				{
+					sprintf(buf, "%s/bios_%s.rom", HomeDir(), rn);
+					loaded = user_io_file_tx(buf);
+				}
+			}
+			printf("\x1b[32mMCD: physical disc region %s%s\n\x1b[0m",
+				*rn ? rn : "unknown",
+				loaded ? ", loaded matching BIOS" : ", falling back to boot.rom");
+		}
+		else
+		{
+			strcpy(buf, last_dir);
+			char *bp = strrchr(buf, '/');
+			if (bp)
+			{
+				strcpy(bp + 1, "cd_bios.rom");
+				loaded = user_io_file_tx(buf);
+			}
 		}
 
 		if (!loaded)
 		{
 			sprintf(buf, "%s/boot.rom", HomeDir());
 			loaded = user_io_file_tx(buf);
+
+			if (loaded && phys && !audio_only && disc_region != PHYSICAL_DISC_REGION_UNKNOWN)
+			{
+				static uint8_t hdr[0x200];
+				physical_disc_region_t bios_region = PHYSICAL_DISC_REGION_UNKNOWN;
+
+				if (FileLoad(buf, hdr, sizeof(hdr)) >= 0x1F3)
+					bios_region = physical_disc_region_from_md_header(hdr, sizeof(hdr));
+
+				if (bios_region != PHYSICAL_DISC_REGION_UNKNOWN && bios_region != disc_region)
+				{
+					static char msg[128];
+					sprintf(msg, "%s disc on %s BIOS - add boot_%s.rom",
+						physical_disc_region_name(disc_region),
+						physical_disc_region_name(bios_region),
+						physical_disc_region_name(disc_region));
+					printf("\x1b[32mMCD: WARNING: %s\n\x1b[0m", msg);
+					Info(msg, 6000);
+				}
+			}
 		}
 
 		if (!loaded) Info("CD BIOS not found!", 4000);
 	}
 
+	int mounted = 0;
 	if (loaded && *filename)
 	{
 		if (cdd.Load(filename) > 0)
 		{
+			mounted = 1;
+			cdd.isData = audio_only ? 0 : 1;
 			cdd.status = cdd.loaded ? CD_STAT_STOP : CD_STAT_NO_DISC;
 			cdd.latency = 10;
 			cdd.SendData = mcd_send_data;
 			cdd.CanSendData = mcd_can_send_data;
+			if (phys) physical_disc_swap_enable(1);   
 
-			if (!same_game)
+			if (!audio_only && !same_game)
 			{
-				mcd_load_rom(filename, "cd_bios.rom", 0);
-				mcd_load_rom(filename, "cart.rom", 1);
-				mcd_mount_save(filename);
-				cheats_init(filename, 0);
+				if (phys)
+				{
+
+					char save_name[64] = "physical_disc";
+					physical_disc_save_name(PHYSICAL_DISC_DISC_MEGACD, save_name, sizeof(save_name));
+					mcd_mount_save(save_name);
+				}
+				else
+				{
+					mcd_load_rom(filename, "cd_bios.rom", 0);
+					mcd_load_rom(filename, "cart.rom", 1);
+					mcd_mount_save(filename);
+					cheats_init(filename, 0);
+				}
 			}
 		}
 		else
@@ -179,6 +286,8 @@ void mcd_set_image(int num, const char *filename)
 			cdd.status = CD_STAT_NO_DISC;
 		}
 	}
+
+	return mounted;
 }
 
 void mcd_reset() {

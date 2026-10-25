@@ -59,6 +59,31 @@ own functions, from Main's UI loop.
 
 Coming: pause and save-state slots (cores that support them).
 
+## Physical discs
+
+Games from the dock's CD/DVD drive (`/dev/sr0`), merged from
+[Main_MiSTer_Physical_Disc](https://github.com/Anime0t4ku/Main_MiSTer_Physical_Disc) by **Anime0t4ku** and **bonna79**
+(GPL-3.0; merged at their commit e6e62b2, 2026-10-14, after v2.10.0). Their work, unchanged: PlayStation (with
+LibCrypt from the disc's subchannel), Saturn, Mega-CD (CD+G), PC Engine CD, Neo Geo CD, CD-i and 3DO (experimental),
+SNES MSU-1 and MD+ from a disc, CD audio and disc swapping. Their code is in `support/physical_disc/` and the
+per-system files; their notes and options are in their README.
+
+What's different in Phosphor's Main:
+- **One Main.** Upstream is a separate Main that MiSTer switches to through `[A0CD-*] main=MiSTer_Physical-CD`
+  sections in MiSTer.ini. Here it's built into Phosphor's Main, so Phosphor's API (screen, controllers, front
+  ports, mapping) keeps working while a disc game runs. No `main=` sections are needed.
+- **Auto Disc Discovery is off by default** (`cfg.cpp`): Phosphor's Main is always the menu's Main and Phosphor
+  owns the screen, so a disc going in mustn't start a core by itself. Phosphor decides (its disc screen and
+  setting). `PHYSICAL_DISC_MGL=1` in MiSTer.ini still turns upstream's behaviour on.
+- Disc games are started the upstream way, with `.mgl` files that load the stock cores under an `A0CD-*` set
+  name (the name tells the disc code the core was started for a disc). CD-i uses its own core fork.
+- Merged with `-X ignore-space-change` and blank-line padding taken out, so MiSTer's own lines stay as MiSTer
+  has them and later MiSTer releases merge cleanly. Conflicts were with newer MiSTer code (Saturn RAM carts,
+  CD-i reads, the file browser): MiSTer's version kept, their disc branches added to it.
+
+Updating from upstream: `git fetch a0cd && git merge -X ignore-space-change a0cd/master` on the `disc-support`
+branch, then build and run `phosphor_tests/run.sh`.
+
 ## Building
 
 `make` with ARM GNU toolchain 10.2-2020.11 (`arm-none-linux-gnueabihf`), the one MiSTer-devel uses

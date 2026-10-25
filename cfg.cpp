@@ -67,6 +67,15 @@ static const ini_var_t ini_vars[] =
 	{ "MENU_PAL", (void*)(&(cfg.menu_pal)), UINT8, 0, 1 },
 	{ "BOOTCORE", (void*)(&(cfg.bootcore)), STRING, 0, sizeof(cfg.bootcore) - 1 },
 	{ "BOOTCORE_TIMEOUT", (void*)(&(cfg.bootcore_timeout)), INT16, 2, 30 },
+
+	{ "PHYSICAL_DISC_MGL", (void*)(&(cfg.physical_disc_launch)), UINT8, 0, 1 },
+	{ "PHYSICAL_DISC_MOUNT_DELAY", (void*)(&(cfg.physical_disc_mount_delay)), UINT8, 0, 30 },
+	{ "PHYSICAL_DISC_ACOUSTIC", (void*)(&(cfg.physical_disc_acoustic)), UINT8, 0, 1 },
+	{ "PHYSICAL_DISC_BOOT", (void*)(&(cfg.physical_disc_boot)), UINT8, 0, 1 },
+	{ "MEGACD_SUBCODE_LOG", (void*)(&(cfg.megacd_subcode_log)), UINT8, 0, 1 },
+	{ "MEGACD_CDDA_PACED", (void*)(&(cfg.megacd_cdda_paced)), UINT8, 0, 1 },
+	{ "AUDIOCD", (void*)(cfg.physical_disc_audio_cd), STRING, 0, sizeof(cfg.physical_disc_audio_cd) - 1 },
+	{ "DVD", (void*)(cfg.physical_disc_dvd), STRING, 0, sizeof(cfg.physical_disc_dvd) - 1 },
 	{ "FONT", (void*)(&(cfg.font)), STRING, 0, sizeof(cfg.font) - 1 },
 	{ "FB_SIZE", (void*)(&(cfg.fb_size)), UINT8, 0, 4 },
 	{ "FB_TERMINAL", (void*)(&(cfg.fb_terminal)), UINT8, 0, 2 },
@@ -290,7 +299,7 @@ static void ini_parse_numeric(const ini_var_t *var, const char *text, void *out)
 	case HEX32:
 	case HEX32ARR:
 		invalid_format = strncasecmp(text, "0x", 2);
-		// fall through
+		__attribute__((fallthrough));
 
 	case UINT8:
 	case UINT16:
@@ -619,6 +628,16 @@ void cfg_parse()
 	cfg.hdmi_cec_power_on = 1;
 	cfg.hdr_max_nits = 1000;
 	cfg.hdr_avg_nits = 250;
+	// Phosphor: Auto Disc Discovery off by default. Upstream (Main_MiSTer_Physical_Disc) has it on, but
+	// its users only run their Main in the menu when they opt in ([menu] main=MiSTer_Physical-CD), while
+	// Phosphor's Main is always the menu's Main and Phosphor owns the screen: a disc going in must not
+	// load a core behind Phosphor's back. Phosphor decides what happens (its disc screen and setting);
+	// PHYSICAL_DISC_MGL=1 in MiSTer.ini still turns upstream's behaviour on.
+	cfg.physical_disc_launch = 0;	
+	cfg.physical_disc_mount_delay = 2;	
+	cfg.physical_disc_acoustic = 0;	
+	cfg.physical_disc_boot = 0;
+	strcpy(cfg.physical_disc_audio_cd, "PSX");
 	cfg.video_brightness = 50;
 	cfg.video_contrast = 50;
 	cfg.video_saturation = 100;

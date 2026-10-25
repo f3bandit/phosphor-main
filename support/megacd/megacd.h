@@ -54,6 +54,8 @@ public:
 
 	cdd_t();
 	int Load(const char *filename);
+	int SwapPhys();                       
+	int is_phys() { return toc.phys; }
 	void Unload();
 	void Reset();
 	void Update();
@@ -97,7 +99,8 @@ extern cdd_t cdd;
 
 
 void mcd_poll();
-void mcd_set_image(int num, const char *filename);
+
+int mcd_set_image(int num, const char *filename);
 void mcd_reset();
 int mcd_send_data(uint8_t* buf, int len, uint8_t index);
 int mcd_can_send_data(uint8_t type);

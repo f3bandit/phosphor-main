@@ -43,6 +43,7 @@
 #include "frame_timer.h"
 #include "scaler.h"
 #include "support.h"
+#include "support/physical_disc/physical_disc_launch.h"
 
 static char core_path[1024] = {};
 static char rbf_path[1024] = {};
@@ -76,7 +77,7 @@ static int io_ver = 0;
 // keep state of caps lock
 static char caps_lock_toggle = 0;
 
-#define LED_FREQ 100   // 100 ms
+#define LED_FREQ 100 // 100 ms
 static unsigned long led_timer;
 static char keyboard_leds = 0;
 static bool caps_status = 0;
@@ -1480,6 +1481,13 @@ void user_io_init(const char *path, const char *xml)
 {
 	char *name;
 	static char mainpath[512];
+
+	// Physical-disc cartridge-style cores can be reloaded directly into the
+	// same core name. Their normal poll-based cleanup therefore never sees an
+	// inactive core. Tear them down before every new core initialization.
+	snes_cd_session_reset();
+	mdplus_cd_session_reset();
+
 	core_name[0] = 0;
 	disable_osd = 0;
 
@@ -1788,8 +1796,8 @@ void user_io_init(const char *path, const char *xml)
 		if (is_marty() && xml && isXmlName(xml) == 2) marty_mgl_premount();
 		if (is_pcfx() && xml && isXmlName(xml) == 2) pcfx_mgl_premount();
 
-		// release reset
-		if (!is_minimig() && !is_st()) user_io_status_set("[0]", 0);
+		// release reset (the physical disc PSX core keeps it until its disc is mounted)
+		if (!is_minimig() && !is_st() && !physical_disc_launch_psx_boot_hold()) user_io_status_set("[0]", 0);
 		if (xml && isXmlName(xml) == 1) arcade_check_error();
 
 		char cfg_errs[512];
@@ -1974,7 +1982,7 @@ uint8_t user_io_ps2_ctl(uint8_t *kbd_ctl, uint8_t *mouse_ctl)
 }
 
 // 16 byte fifo for amiga key codes to limit max key rate sent into the core
-#define KBD_FIFO_SIZE  16   // must be power of 2
+#define KBD_FIFO_SIZE  16 // must be power of 2
 static unsigned short kbd_fifo[KBD_FIFO_SIZE];
 static unsigned char kbd_fifo_r = 0, kbd_fifo_w = 0;
 static long kbd_timer = 0;
@@ -1982,7 +1990,7 @@ static long kbd_timer = 0;
 static void kbd_fifo_minimig_send(uint32_t code)
 {
 	spi_uio_cmd8((code&OSD) ? UIO_KBD_OSD : UIO_KEYBOARD, code & 0xff);
-	kbd_timer = GetTimer(10);  // next key after 10ms earliest
+	kbd_timer = GetTimer(10); // next key after 10ms earliest
 }
 
 static void kbd_fifo_enqueue(unsigned short code)
@@ -2003,7 +2011,7 @@ static void kbd_fifo_poll()
 	if (kbd_timer && !CheckTimer(kbd_timer))
 		return;
 
-	kbd_timer = 0;  // timer == 0 means timer is not running anymore
+	kbd_timer = 0; // timer == 0 means timer is not running anymore
 
 	if (kbd_fifo_w == kbd_fifo_r)
 		return;
@@ -3150,7 +3158,7 @@ char user_io_a2_woz_enabled()
 char *user_io_get_confstr(int index)
 {
 	int lidx = 0;
-	static char buffer[(1024*2) + 1];  // max bytes per config item
+	static char buffer[(1024*2) + 1]; // max bytes per config item
 
 	char *start = cfgstr;
 	while (lidx < index)
@@ -3331,7 +3339,7 @@ void user_io_poll()
 
 	if (core_type != CORE_TYPE_8BIT)
 	{
-		return;  // no user io for the installed core
+		return; // no user io for the installed core
 	}
 
 	user_io_send_buttons(0);
@@ -3347,7 +3355,7 @@ void user_io_poll()
 		EnableFpga();
 		uint16_t tmp = spi_w(0);
 		c1 = (uint8_t)(tmp >> 8); // cmd request and drive number
-		c2 = (uint8_t)tmp;      // track number
+		c2 = (uint8_t)tmp; // track number
 		spi_w(0);
 		spi_w(0);
 		DisableFpga();
@@ -3399,6 +3407,9 @@ void user_io_poll()
 	{
 		check_status_change();
 	}
+
+	snes_cd_session_poll();
+	mdplus_cd_session_poll();
 
 	// sd card emulation
 	if (is_x86() || is_pcxt() || is_pcat286())
@@ -4176,7 +4187,7 @@ static void send_keycode(unsigned short key, int press)
 		{
 			switch (code)
 			{
-			case 0x00: code = 0xf;  //ESC = BRAKE
+			case 0x00: code = 0xf; //ESC = BRAKE
 				break;
 
 			case 0x11: code = 0x73; // 1 = Mouse extra 1
@@ -4383,17 +4394,17 @@ void user_io_mouse(unsigned char b, int16_t x, int16_t y, int16_t w)
 0     1     2    3    4     5     6    7
 LCTRL LSHIFT LALT LGUI RCTRL RSHIFT RALT RGUI
 */
-#define EMU_BTN1  (0+(keyrah*4))  // left control
-#define EMU_BTN2  (1+(keyrah*4))  // left shift
-#define EMU_BTN3  (2+(keyrah*4))  // left alt
-#define EMU_BTN4  (3+(keyrah*4))  // left gui (usually windows key)
+#define EMU_BTN1  (0+(keyrah*4)) // left control
+#define EMU_BTN2  (1+(keyrah*4)) // left shift
+#define EMU_BTN3  (2+(keyrah*4)) // left alt
+#define EMU_BTN4  (3+(keyrah*4)) // left gui (usually windows key)
 
 void user_io_check_reset(unsigned short modifiers, char useKeys)
 {
 	unsigned short combo[] =
 	{
-		0x45,  // lctrl+lalt+ralt
-		0x89,  // lctrl+lgui+rgui
+		0x45, // lctrl+lalt+ralt
+		0x89, // lctrl+lgui+rgui
 		0x105, // lctrl+lalt+del
 	};
 

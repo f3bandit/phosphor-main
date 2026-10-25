@@ -2,7 +2,8 @@
 // around it. Part of phosphor-main (a fork of MiSTer-devel/Main_MiSTer), GPL-3.0 like Main.
 //
 // Unix socket /tmp/phosphor-main.sock (root only), one command per line, one JSON reply per line:
-//   hello                  {"ok":true,"api":4,"name":"phosphor-main","pads":true,"scripts":true,"mapping":true}
+//   hello                  {"ok":true,"api":5,"name":"phosphor-main","pads":true,"scripts":true,"mapping":true,
+//                          "disc":true,"ingame":true}
 //   status                 core, menu core or not, OSD visible, framebuffer shown, who owns the screen
 //   script PATH            (the shell, owning the screen) run a script the way MiSTer's Scripts menu does:
 //                          MiSTer's terminal on tty2, controllers as its keys, "Press any key to continue";
@@ -12,6 +13,14 @@
 //                          if it closes (the shell quit or crashed), Main takes the screen back.
 //   sheet on|off           in a game, a short menu-button press goes to Phosphor (event), a long one
 //                          (0.7 s) opens the OSD as usual; off: the OSD as usual
+//   ingame on|off          in a game: Phosphor's screen (the Linux framebuffer) shown over the running game,
+//                          for Phosphor's in-game menu; the controllers go to Phosphor (pad events), not the
+//                          game, until off. The game keeps running behind it. Belongs to this connection
+//                          (it becomes the screen's owner); a core change or the connection closing ends it,
+//                          and {"event":"ingame","on":false} tells it when Main took the screen back.
+//   ingame osd             from Phosphor's in-game menu to MiSTer's menu (the core's own options)
+//   disc / disc eject      the dock's CD/DVD drive: what's in it, and open the tray (phosphor_disc.cpp);
+//                          subscribers get {"event":"disc",...} when it changes
 //   launch <path>          load a core (.rbf) or a .mgl/.mra, like MiSTer_cmd load_core (under /media only)
 //   (Main's OSD has "Launch Phosphor": first on MiSTer's System page, and on a core's System page under
 //   Video processing; holding the menu button 2 s in MiSTer's menu does the same: phosphor_start)
@@ -51,6 +60,7 @@
 // Apart from those commands nothing here talks to the FPGA directly: it uses Main's own
 // functions, from Main's UI loop.
 #include "phosphor.h"
+#include "phosphor_disc.h"
 #include "menu.h"
 #include "user_io.h"
 #include "video.h"
@@ -91,6 +101,7 @@ static int lfd = -1;
 static ph_client_t cl[PH_MAX];
 static int owner = -1;           // index of the client that owns the screen, -1: Main
 static int sheet_client = -1;    // the client that turned the in-game sheet on
+static int ingame_client = -1;   // Phosphor's screen is shown over the running game for this client
 static char last_core[64];
 static int last_osd = -1;
 static unsigned long f12_down;   // when the menu button went down (sheet), 0: not held
@@ -566,6 +577,7 @@ static void drop(int i)
 	if (mp.client == i && phosphor_mapping) map_end(0);   // the shell went away mid-mapping: nothing saved
 	if (owner == i) give_back();      // the shell went away: Main's menu comes back
 	if (sheet_client == i) sheet_client = -1;
+	if (ingame_client == i) { ingame_client = -1; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
 	if (card_op.client == i) card_op.client = -1;   // (the card finishes on its own)
 	if (ports_client == i) ports_set(-1, 0);
 	if (script_client == i) script_client = -1;   // (the script carries on; nobody to tell)
@@ -585,7 +597,7 @@ static void command(int i, char *line)
 	char out[512];
 	while (*line == ' ') line++;
 	if (!strcmp(line, "hello"))
-		send_line(i, "{\"ok\":true,\"api\":4,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true,\"mapping\":true}");   // api 3: scripts, 4: mapping
+		send_line(i, "{\"ok\":true,\"api\":5,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true,\"mapping\":true,\"disc\":true,\"ingame\":true}");   // api 3: scripts, 4: mapping, 5: disc, ingame
 	else if (!strncmp(line, "script ", 7)) script_start(i, line + 7);
 	else if (!strcmp(line, "status"))
 	{
@@ -612,6 +624,36 @@ static void command(int i, char *line)
 		send_line(i, "{\"ok\":true}");
 	}
 	else if (!strcmp(line, "sheet on")) { sheet_client = i; send_line(i, "{\"ok\":true}"); }
+	else if (!strcmp(line, "ingame on"))
+	{
+		if (is_menu()) { send_line(i, "{\"ok\":false,\"error\":\"no game is running\"}"); return; }
+		if (owner >= 0 && owner != i) { send_line(i, "{\"ok\":false,\"error\":\"another client has the screen\"}"); return; }
+		if (user_io_osd_is_visible()) menu_key_set(KEY_F12);   // MiSTer's menu closes first
+		owner = i;
+		ingame_client = i;
+		video_chvt(1);
+		video_fb_enable(1);
+		send_line(i, video_fb_state() ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"this core can't show Phosphor's screen\"}");
+		if (!video_fb_state())
+		{
+			ingame_client = -1;
+			send_line(i, "{\"event\":\"ingame\",\"on\":false,\"error\":\"this core can't show Phosphor's screen\"}");
+		}
+	}
+	else if (!strcmp(line, "ingame osd"))
+	{
+		// from Phosphor's in-game menu to MiSTer's own (the core's options): Phosphor's screen off, the OSD open
+		if (ingame_client == i) { ingame_client = -1; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
+		if (!is_menu() && !user_io_osd_is_visible()) menu_key_set(KEY_F12);
+		send_line(i, "{\"ok\":true}");
+	}
+	else if (!strcmp(line, "ingame off"))
+	{
+		if (ingame_client == i) { ingame_client = -1; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
+		send_line(i, "{\"ok\":true}");
+	}
+	else if (!strncmp(line, "disc", 4) && (!line[4] || line[4] == ' ') && phosphor_disc_command(line, out, sizeof(out)))
+		send_line(i, out);
 	else if (!strcmp(line, "sheet off")) { if (sheet_client == i) sheet_client = -1; send_line(i, "{\"ok\":true}"); }
 	else if (!strncmp(line, "launch ", 7))
 	{
@@ -721,7 +763,7 @@ int phosphor_pad(uint32_t mask, int press)
 {
 	if (script_state == 1) return 0;           // the script has the controllers (MiSTer's terminal keys)
 	if (script_state == 2) { if (press) script_finish(); return 1; }
-	if (owner < 0 || !is_menu() || !pad_name(mask)) return 0;
+	if (owner < 0 || !(is_menu() || ingame_client == owner) || !pad_name(mask)) return 0;
 	pad_send(mask, press ? 1 : 0);
 	if (press && (mask & JOY_MOVE)) { rep_mask = mask; rep_next = GetTimer(320); }
 	else if (!press && mask == rep_mask) rep_mask = 0;
@@ -756,6 +798,13 @@ void phosphor_poll(void)
 	card_poll();
 	pad_seq_poll();
 	map_poll();
+	phosphor_disc_poll(event_all);
+	// MiSTer's menu (a long press) or Main itself took the screen back from Phosphor's in-game menu
+	if (ingame_client >= 0 && !is_menu() && !video_fb_state())
+	{
+		if (cl[ingame_client].fd >= 0) send_line(ingame_client, "{\"event\":\"ingame\",\"on\":false}");
+		ingame_client = -1;
+	}
 
 	// events
 	char core[64], ev[256], name[128];
@@ -764,6 +813,7 @@ void phosphor_poll(void)
 	{
 		snprintf(last_core, sizeof(last_core), "%s", core);
 		ext_ver = -1;                       // another core (or the menu core again): ask again
+		ingame_client = -1;                 // the in-game screen belongs to the game that's gone
 		if (ports_client >= 0 && !is_menu()) { ports_client = -1; pad_seq.step = 0; }
 		json_str(name, sizeof(name), core);
 		snprintf(ev, sizeof(ev), "{\"event\":\"core\",\"name\":\"%s\",\"menu\":%s}", name, is_menu() ? "true" : "false");
