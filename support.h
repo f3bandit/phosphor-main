@@ -60,7 +60,9 @@
 // MEGACD  support
 #include "support/megacd/megacd.h"
 
-// C64 support
+#include "support/physical_disc/physical_disc.h"
+#include "support/physical_disc/physical_disc_launch.h"
+
 #include "support/c64/c64.h"
 
 // Atari 8bit support

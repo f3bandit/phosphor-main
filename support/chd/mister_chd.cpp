@@ -8,6 +8,7 @@
 #include "../../file_io.h"
 #include "../../cd.h"
 #include "mister_chd.h"
+#include "../physical_disc/physical_disc_acoustic.h"
 
 void lba_to_hunkinfo(chd_file *chd_f, int lba, int *hunknumber, int *hunkoffset)
 {
@@ -31,7 +32,7 @@ int mister_chd_log(const char *format, ...)
 chd_error mister_load_chd(const char *filename, toc_t *cd_toc)
 {
 	cd_toc->last = -1;
-	
+
 	chd_error err = chd_open(getFullPath(filename), CHD_OPEN_READ, NULL, &cd_toc->chd_f);
 	if (err != CHDERR_NONE)
 	{
@@ -162,6 +163,8 @@ chd_error mister_load_chd(const char *filename, toc_t *cd_toc)
 
 chd_error mister_chd_read_sector(chd_file *chd_f, int lba, uint32_t d_offset, uint32_t s_offset, int length, uint8_t *destbuf, uint8_t *hunkbuf, int *hunknum)
 {
+
+	physical_disc_acoustic_hint(lba);
 
 	int tmphnum = 0;
 	int hunkofs = 0;

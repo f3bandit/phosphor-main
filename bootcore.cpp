@@ -255,6 +255,18 @@ static CoreMatch findCore(const char *name, const char *coreName)
 	return best;
 }
 
+int find_core_rbf(const char *coreName, char *out, int outsz)
+{
+	if (!coreName || !out || outsz <= 0) return 0;
+
+	CoreMatch m = findCore(getRootDir(), coreName);
+	if (!m.path) return 0;
+
+	snprintf(out, outsz, "%s", m.path);
+	delete[] m.path;
+	return 1;
+}
+
 void bootcore_init(const char *path)
 {
 	char *auxpointer;

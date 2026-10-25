@@ -11,6 +11,7 @@
 #include "../../menu.h"
 #include "../../cheats.h"
 #include "../megacd/megacd.h"
+#include "../physical_disc/physical_disc.h"
 #include "neogeocd.h"
 #include "neogeo_loader.h"
 
@@ -28,6 +29,21 @@ static uint8_t cd_speed = 0;
 void neocd_poll()
 {
 	static uint8_t last_req = 255;
+	static uint32_t swap_close_at = 0;
+
+	if (cdd.is_phys() && physical_disc_swap_consume() && cdd.SwapPhys())
+	{
+		cdd.isData = 1;
+		cdd.status = CD_STAT_OPEN;
+		cdd.latency = 0;
+		swap_close_at = GetTimer(PHYSICAL_DISC_SWAP_DWELL_MS);
+	}
+	if (cdd.is_phys() && swap_close_at && CheckTimer(swap_close_at))   
+	{
+		swap_close_at = 0;
+		cdd.status = cdd.loaded ? CD_STAT_STOP : CD_STAT_NO_DISC;
+		cdd.latency = 10;
+	}
 
 	if (!poll_timer || CheckTimer(poll_timer))
 	{
@@ -110,21 +126,32 @@ void set_poll_timer()
 	poll_timer = GetTimer(interval);
 }
 
-void neocd_set_image(char *filename)
+int neocd_set_image(const char *filename)
 {
+	int bios_ok = 0;
+	int phys = !strcmp(filename, PHYSICAL_DISC_SENTINEL);
+
 	cdd.Unload();
+	physical_disc_swap_enable(0);              
 	cdd.status = CD_STAT_OPEN;
 
 	if (*filename)
 	{
-		neogeo_romset_tx(filename, 1);
+
+		char nm[1024];
+		snprintf(nm, sizeof(nm), "%s", filename);
+		bios_ok = neogeo_romset_tx(nm, 1);
 
 		if (cdd.Load(filename) > 0)
 		{
+			toc_t disc_toc = {};
+			int audio_only = phys && !physical_disc_current_toc(&disc_toc) && physical_disc_toc_audio_only(&disc_toc);
+			cdd.isData = audio_only ? 0 : 1;
 			cdd.status = cdd.loaded ? CD_STAT_STOP : CD_STAT_NO_DISC;
 			cdd.latency = 10;
 			cdd.SendData = neocd_send_data;
 			cdd.CanSendData = neocd_can_send_data;
+			if (phys) physical_disc_swap_enable(1);   
 		}
 		else
 		{
@@ -133,6 +160,8 @@ void neocd_set_image(char *filename)
 	}
 
 	neocd_reset();
+
+	return bios_ok && cdd.loaded;
 }
 
 void neocd_reset() {

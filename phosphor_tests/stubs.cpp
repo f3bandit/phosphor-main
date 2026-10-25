@@ -93,3 +93,15 @@ const char *input_map_file(void) { return ""; }
 int get_map_button() { return 0; }
 void start_map_setting(int, int, advancedButtonMap *) {}
 void finish_map_setting(int) {}
+// the in-game screen and the disc (phosphor_disc.cpp is tested on the SuperStation: it needs a drive)
+int g_fb_enable_calls;
+void video_fb_enable(int on, int) { g_fb = on; g_fb_enable_calls++; }
+void menu_key_set(unsigned int) {}
+#include <stddef.h>
+int phosphor_disc_command(const char *line, char *out, size_t n)
+{
+	if (!strcmp(line, "disc")) { snprintf(out, n, "{\"ok\":true,\"drive\":true,\"state\":\"empty\"}"); return 1; }
+	if (!strcmp(line, "disc eject")) { snprintf(out, n, "{\"ok\":true}"); return 1; }
+	return 0;
+}
+void phosphor_disc_poll(void (*)(const char *)) {}

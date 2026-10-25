@@ -22,7 +22,7 @@ static const char *got(int s) { for (int i = 0; i < 5; i++) phosphor_poll(); int
 int main() {
 	phosphor_poll();
 	int a = conn(), b = conn();
-	say(a, "hello"); CHECK(strstr(got(a), "\"api\":4") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true") && strstr(rb, "\"mapping\":true"), "hello");
+	say(a, "hello"); CHECK(strstr(got(a), "\"api\":5") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true") && strstr(rb, "\"mapping\":true") && strstr(rb, "\"disc\":true") && strstr(rb, "\"ingame\":true"), "hello");
 	say(a, "status"); CHECK(strstr(got(a), "\"owner\":\"main\""), "status: Main owns the screen");
 	say(a, "screen phosphor"); CHECK(strstr(got(a), "\"ok\":true") && g_screen_req == 1, "screen phosphor -> framebuffer on");
 	say(b, "screen phosphor"); CHECK(strstr(got(b), "another client"), "second client can't take it");
@@ -120,6 +120,24 @@ int main() {
 		say(e, "ports on"); CHECK(strstr(got(e), "not available"), "stock menu core: ports on refused");
 		g_ext = 1;
 		close(e);
+	}
+	{
+		// the disc and Phosphor's in-game screen
+		int f = conn();
+		say(f, "disc"); CHECK(strstr(got(f), "\"state\":\"empty\""), "disc: state");
+		say(f, "discx"); CHECK(!strstr(got(f), "\"state\""), "disc: other words aren't disc commands");
+		g_menu = 1; say(f, "ingame on"); CHECK(strstr(got(f), "no game is running"), "ingame: not in the menu core");
+		g_menu = 0; strcpy(g_core, "SNES"); got(f); g_fb = 0;
+		say(f, "ingame on"); CHECK(strstr(got(f), "\"ok\":true") && g_fb == 1, "ingame on: Phosphor's screen over the game");
+		CHECK(phosphor_pad(0x08, 1) == 1 && strstr(got(f), "\"event\":\"pad\""), "ingame: the controller goes to Phosphor");
+		phosphor_pad(0x08, 0); got(f);
+		say(f, "ingame off"); CHECK(strstr(got(f), "\"ok\":true") && g_fb == 0, "ingame off: the game again");
+		CHECK(phosphor_pad(0x08, 1) == 0, "ingame off: the controller goes to the game");
+		phosphor_pad(0x08, 0);
+		say(f, "ingame on"); got(f); g_fb = 0; usleep(1000);
+		CHECK(strstr(got(f), "\"event\":\"ingame\",\"on\":false"), "Main took the screen back: told");
+		close(f); got(f);
+		g_menu = 1; strcpy(g_core, "MENU");
 	}
 	printf("ALL PASSED\n");
 }
