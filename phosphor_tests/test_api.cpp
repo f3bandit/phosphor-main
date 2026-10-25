@@ -22,7 +22,7 @@ static const char *got(int s) { for (int i = 0; i < 5; i++) phosphor_poll(); int
 int main() {
 	phosphor_poll();
 	int a = conn(), b = conn();
-	say(a, "hello"); CHECK(strstr(got(a), "\"api\":3") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true"), "hello");
+	say(a, "hello"); CHECK(strstr(got(a), "\"api\":4") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true") && strstr(rb, "\"mapping\":true"), "hello");
 	say(a, "status"); CHECK(strstr(got(a), "\"owner\":\"main\""), "status: Main owns the screen");
 	say(a, "screen phosphor"); CHECK(strstr(got(a), "\"ok\":true") && g_screen_req == 1, "screen phosphor -> framebuffer on");
 	say(b, "screen phosphor"); CHECK(strstr(got(b), "another client"), "second client can't take it");
