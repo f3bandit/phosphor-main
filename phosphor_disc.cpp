@@ -13,7 +13,7 @@
 //                    "type":"psx|saturn|megacd|pcecd|neogeocd|3do|cdi|mdplus|msu1|audio|dvd|unknown",
 //                    "system":"PlayStation","serial":"SCUS-94300","label":"...","region":"US",
 //                    "tracks":N,"playable":true,"mgl":"PSX"}
-//   disc eject      opens the tray (also when no disc is in)
+//   disc eject      opens the tray (also when no disc is in, and during a game: changing discs)
 //   disc off|on     Phosphor's Settings › Discs: off, the drive isn't watched or read at all ("state":"off")
 //   event           {"event":"disc",...the same...} to subscribers when it changes
 #include "phosphor_disc.h"
@@ -206,7 +206,8 @@ int phosphor_disc_command(const char *line, char *out, size_t n)
 	if (!strcmp(line, "disc eject"))
 	{
 		if (working) { snprintf(out, n, "{\"ok\":false,\"error\":\"the drive is reading the disc, try again in a moment\"}"); return 1; }
-		if (!is_menu()) { snprintf(out, n, "{\"ok\":false,\"error\":\"a game is running\"}"); return 1; }
+		// in a game too: Change disc in Phosphor's in-game menu. The disc code of a running disc core
+		// sees the tray open and close (physical_disc swap) and mounts the next disc.
 		physical_disc_tray_release();
 		snprintf(out, n, eject() ? "{\"ok\":false,\"error\":\"no drive, or it didn't open\"}" : "{\"ok\":true}");
 		return 1;
