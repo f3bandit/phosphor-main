@@ -521,10 +521,20 @@ static constexpr int CFG_ERRORS_STRLEN = 128;
 static char cfg_errors[CFG_ERRORS_MAX][CFG_ERRORS_STRLEN];
 static int cfg_error_count = 0;
 
+// Phosphor: up to FOUR alternative inis (MiSTer's Main stops at three).
+// WHY: the SuperStation One ships MiSTer.ini plus four video profiles (Taki's
+// SuperStation-Documentation/INI_Files): MiSTer_RGHV.ini, MiSTer_RGsB.ini, MiSTer_SVID.ini and
+// MiSTer_YPbP.ini. MiSTer's Main takes only the first three MiSTer_*.ini it finds (readdir order),
+// so one of them was always hidden (and MiSTer_example.ini, which Phosphor renames to
+// MiSTer_example.ini.txt, took a slot too). Phosphor picks the profile from its own menus and apps
+// (phosphord vtry.c, which must agree with this: four), so all four are offered. The OSD's ini
+// picker (a D-pad cross, Misc Options) still shows three; the fourth is chosen from Phosphor.
+// See phosphor_os docs/ss1-video.md before changing this.
+#define CFG_ALT_MAX 4
 const char* cfg_get_name(uint8_t alt)
 {
 	static int done = 0;
-	static char names[3][64] = {};
+	static char names[CFG_ALT_MAX][64] = {};
 	static char name[64];
 
 	if (!done)
@@ -539,7 +549,7 @@ const char* cfg_get_name(uint8_t alt)
 		{
 			struct dirent *de;
 			int i = 0;
-			while ((de = readdir(d)) && i < 3)
+			while ((de = readdir(d)) && i < CFG_ALT_MAX)
 			{
 				int len = strlen(de->d_name);
 				if (!strncasecmp(de->d_name, "MiSTer_", 7) && !strcasecmp(de->d_name + len - 4, ".ini"))
@@ -551,9 +561,9 @@ const char* cfg_get_name(uint8_t alt)
 			closedir(d);
 		}
 
-		for (int i = 1; i < 3; i++)
+		for (int i = 1; i < CFG_ALT_MAX; i++)
 		{
-			for (int j = 1; j < 3; j++)
+			for (int j = 1; j < CFG_ALT_MAX; j++)
 			{
 				if ((!names[j - 1][0] && names[j][0]) || (names[j - 1][0] && names[j][0] && strcasecmp(names[j - 1], names[j]) > 0))
 				{
@@ -566,7 +576,7 @@ const char* cfg_get_name(uint8_t alt)
 	}
 
 	strcpy(name, "MiSTer.ini");
-	if (alt && alt < 4) strcpy(name, names[alt-1]);
+	if (alt && alt <= CFG_ALT_MAX) strcpy(name, names[alt-1]);
 	return name;
 }
 
