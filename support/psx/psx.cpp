@@ -5,11 +5,14 @@
 #include <inttypes.h>
 
 #include "../../file_io.h"
+#include "../physical_disc/physical_disc.h"
+#include "../physical_disc/physical_disc_launch.h"
 #include "../../user_io.h"
 #include "../../spi.h"
 #include "../../hardware.h"
 #include "../../menu.h"
 #include "psx.h"
+#include "psx_libcrypt.h"
 #include "mcdheader.h"
 #include "../../cd.h"
 #include "../chd/mister_chd.h"
@@ -110,6 +113,7 @@ static void unload_chd(toc_t *table)
 		chd_close(table->chd_f);
 	}
 	if (chd_hunkbuf) free(chd_hunkbuf);
+	chd_hunkbuf = NULL;
 	memset(table, 0, sizeof(toc_t));
 	chd_hunknum = -1;
 
@@ -330,8 +334,64 @@ static int load_cue(const char* filename, toc_t *table)
 	return 1;
 }
 
+static void unload_phys(toc_t *table)
+{
+	if (table->phys) physical_disc_close();
+	memset(table, 0, sizeof(toc_t));
+}
+
+static void apply_disc_bias(toc_t *table)
+{
+	for (int i = 0; i < table->last; i++)
+	{
+		int len = table->tracks[i].end - table->tracks[i].start;
+		int index1 = table->tracks[i].indexes[1];
+
+		table->tracks[i].indexes[1] = i ? index1 : 150;
+		table->tracks[i].pregap = 0;
+		table->tracks[i].start += 150;
+		table->tracks[i].end = table->tracks[i].start + len - 1;
+	}
+	table->end = table->tracks[table->last - 1].end + 1;
+}
+
+static int load_phys(toc_t *table)
+{
+
+	if (table->chd_f) unload_chd(table);
+	else if (table->phys) unload_phys(table);
+	else unload_cue(table);
+
+	if (physical_disc_open(NULL) || physical_disc_load_toc(table) || !table->last)
+	{
+
+		physical_disc_close();
+		return 0;
+	}
+
+	// Enrich the basic drive TOC with real INDEX 00/pregap information when
+	// the drive can return raw Q subchannel data. This must happen before the
+	// PSX-specific 150-sector bias is applied so track starts/indexes describe
+	// the physical disc accurately. Drives without usable sub-Q simply keep the
+	// basic TOC and retain the existing fallback behaviour.
+	//
+	// This scan needs one physical reposition + a 256-sector Q read per audio
+	// track, so on a multi-track disc it can take a while. It is required for
+	// correct CD-DA playback though: skipping it at boot was tried and breaks
+	// audio entirely on at least some titles (confirmed on real hardware with
+	// Ridge Racer Revolution), so it always runs here. The core is kept in
+	// reset until the mount finishes (see physical_disc_launch_startup /
+	// psx_boot_hold), so the wait is a black screen rather than a visible BIOS
+	// menu detour or a double boot.
+	physical_disc_psx_enrich_toc(table);
+
+	apply_disc_bias(table);
+	return 1;
+}
+
 static int load_cd_image(const char *filename, toc_t *table)
 {
+	if (!strcmp(filename, PHYSICAL_DISC_SENTINEL)) return load_phys(table);
 
 	const char *ext = strrchr(filename, '.');
 	if (!ext) return 0;
@@ -460,6 +520,19 @@ void psx_fill_blanksave(uint8_t *buffer, uint32_t lba, int cnt)
 }
 
 static toc_t toc = {};
+
+static int s_swap_fidx = 1, s_swap_sidx = 1;
+static region_t s_swap_region = UNKNOWN;
+static int s_swap_eject_notified = 0;
+
+// Physical disc mode with an empty (or unreadable) drive: like the lid of a
+// real PSX, the drive tray is watched and the disc is read only when the tray
+// is closed with a disc inside. Applies to PSX game discs and audio CDs alike.
+static int s_wait_disc = 0;        // phys mode active, no disc mounted
+static int s_wait_armed = 0;       // tray seen open/empty since the last try
+static int s_wait_retries = 0;     // mount attempts left after a tray close
+static int s_hot_insert = 0;       // mount comes from a tray close: never reset the core
+static unsigned long s_wait_next = 0;
 #define CD_SECTOR_LEN 2352
 
 int psx_chd_hunksize()
@@ -488,7 +561,12 @@ void psx_read_cd(uint8_t *buffer, int lba, int cnt)
 			{
 				if (lba >= toc.tracks[i].start && lba <= toc.tracks[i].end)
 				{
-					if (!toc.chd_f)
+					if (toc.phys)
+					{
+
+						physical_disc_seek_hint(lba - toc.tracks[0].indexes[1]);
+					}
+					else if (!toc.chd_f)
 					{
 						if (toc.tracks[i].offset)
             {
@@ -511,6 +589,13 @@ void psx_read_cd(uint8_t *buffer, int lba, int cnt)
 
               memset(buffer, 0x0, CD_SECTOR_LEN);
             }
+            else if (toc.phys)
+						{
+
+							int read_lba = lba - toc.tracks[0].indexes[1];
+							if (physical_disc_read_sector(read_lba, buffer, NULL))
+								memset(buffer, 0, CD_SECTOR_LEN);
+						}
             else if (toc.chd_f)
 						{
 
@@ -681,39 +766,193 @@ static int load_bios(const char* filename)
 	return user_io_file_tx(filename, 0xC0);
 }
 
-void psx_mount_cd(int f_index, int s_index, const char *filename)
+// Autoboot: user_io_init() releases the core reset before the physical disc is
+// mounted, so the BIOS starts (logo) and is then restarted by the reset request
+// sent with the mount. To avoid that visible double boot, the launcher holds the
+// core in reset while it reads the disc and psx_mount_cd() releases it right
+// before sending the TOC. The hold is only ever taken by the physical disc
+// launcher (see physical_disc_launch_startup) and is a no-op otherwise.
+static int s_boot_hold = 0;
+
+void psx_boot_hold(int hold)
+{
+	hold = hold ? 1 : 0;
+	if (hold == s_boot_hold) return;
+	s_boot_hold = hold;
+	printf("PSX: core reset %s (physical disc autoboot)\n", hold ? "held" : "released");
+	user_io_status_set("[0]", hold);
+}
+
+// ---------------------------------------------------------------------------- LibCrypt key
+// The key normally comes from an .sbi file. Without one, it is read from the real
+// subchannel of the 32 LibCrypt sectors, when the disc or the image has it
+// (see psx_libcrypt.h). The core gets the same key it would get from the .sbi.
+
+static int lc_read_drive(void *, int lba, int count, uint8_t *raw96)
+{
+	return physical_disc_read_subq_window(lba, count, raw96);
+}
+
+static int lc_read_chd(void *, uint32_t frame, uint8_t *sub96)
+{
+	// frames of the data track, as the core numbers them (first track starts at 150)
+	if (!toc.chd_f || !chd_hunkbuf || frame < 150 || (int)frame > toc.tracks[0].end) return -1;
+	int lba = (int)frame - toc.tracks[0].indexes[1] + toc.tracks[0].offset;
+	return mister_chd_read_sector(toc.chd_f, lba, 0, CD_SECTOR_LEN, 96, sub96, chd_hunkbuf, &chd_hunknum) != CHDERR_NONE;
+}
+
+static int lc_read_subfile(void *ctx, uint32_t frame, uint8_t *sub96)
+{
+	fileTYPE *f = (fileTYPE *)ctx;
+	if (frame < 150) return -1;
+	if (!FileSeek(f, (__off64_t)(frame - 150) * 96, SEEK_SET)) return -1;
+	return FileReadAdv(f, sub96, 96) != 96;
+}
+
+static uint16_t libCryptMaskFromSubchannel(int phys, const char *filename)
+{
+	int8_t st[PSX_LC_SECTORS];
+	int strict = 0;
+	const char *src;
+
+	if (phys)
+	{
+		unsigned long t0 = GetTimer(0);
+		int reads = psx_lc_scan_drive(lc_read_drive, NULL, st);
+		if (reads <= 0)
+		{
+			printf("LibCrypt: the drive returns no subchannel, key not read from the disc\n");
+			return 0;
+		}
+		printf("LibCrypt: %d subchannel reads in %lu ms\n", reads, GetTimer(0) - t0);
+		strict = 1;
+		src = "disc subchannel";
+	}
+	else if (toc.chd_f)
+	{
+		if (toc.tracks[0].sbc_type == SUBCODE_NONE) return 0;
+		if (!psx_lc_scan_image(lc_read_chd, NULL, 2, st)) return 0;
+		src = "CHD subchannel";
+	}
+	else
+	{
+		// CloneCD style .sub next to the image, 96 bytes per sector from LBA 0
+		if (!filename || !*filename) return 0;
+		char path[1024];
+		snprintf(path, sizeof(path), "%s", filename);
+		char *ext = strrchr(path, '.');
+		char *slash = strrchr(path, '/');
+		if (!ext || (slash && ext < slash) || (size_t)(ext - path) + 5 > sizeof(path)) return 0;
+		strcpy(ext, ".sub");
+		fileTYPE f = {};
+		if (!FileOpen(&f, path, 1)) return 0;
+		int n = psx_lc_scan_image(lc_read_subfile, &f, 0, st);
+		FileClose(&f);
+		if (!n) return 0;
+		src = ".sub file";
+	}
+
+	uint16_t key = psx_lc_key(st, strict);
+	char map[PSX_LC_SECTORS + 1];
+	for (int i = 0; i < PSX_LC_SECTORS; i++) map[i] = st[i] == PSX_LC_BAD ? 'X' : (st[i] == PSX_LC_GOOD ? '.' : '?');
+	map[PSX_LC_SECTORS] = 0;
+	printf("LibCrypt: key %04X from the %s [%s]\n", key, src, map);
+	return key;
+}
+
+// .sbi first (sbi.zip by game ID, then next to the image), then the subchannel
+static uint16_t libCryptKey(const char *game_id, int phys, const char *filename, int try_subchannel)
+{
+	fileTYPE sbi_file = {};
+	bool has_sbi_file = false;
+	uint16_t mask = 0;
+
+	// search for .sbi file in PSX/sbi.zip
+	if (game_id && game_id[0])
+	{
+		sprintf(buf, "%s/sbi.zip/%s.sbi", HomeDir(), game_id);
+		has_sbi_file = FileOpen(&sbi_file, buf, 1);
+	}
+
+	if (!has_sbi_file && !phys && filename)
+	{
+		// search for .sbi file base on image name
+		int name_len = strlen(filename);
+		strcpy(buf, filename);
+		strcpy((name_len > 4) ? buf + name_len - 4 : buf + name_len, ".sbi");
+		has_sbi_file = FileOpen(&sbi_file, buf, 1);
+	}
+
+	if (has_sbi_file)
+	{
+		printf("Found SBI file: %s\n", buf);
+		mask = libCryptMask(&sbi_file);
+		FileClose(&sbi_file);
+		return mask;
+	}
+
+	return try_subchannel ? libCryptMaskFromSubchannel(phys, filename) : 0;
+}
+
+int psx_mount_cd(int f_index, int s_index, const char *filename)
 {
 	static char last_dir[1024] = {};
 
 	int loaded = 0;
+	int phys = !strcmp(filename, PHYSICAL_DISC_SENTINEL);
+	physical_disc_swap_enable(0);   
+	if (phys) { s_swap_fidx = f_index; s_swap_sidx = s_index; s_swap_eject_notified = 0; }
+	s_wait_disc = 0;
 
 	if (strlen(filename))
 	{
 		if (load_cd_image(filename, &toc) && toc.last)
 		{
 			int reset = 0;
-			game_info_t game_info = psx_get_game_info();
-			const char* game_id = game_info.game_id;
-			region_t region = psx_get_region();
-			if (region == region_t::UNKNOWN)
-				region = game_info.region;
-			printf("Game ID: %s, region: %s\n", game_id, region_string(region));
-
-			// Write game ID if it's not empty (BIOS check is handled in user_io_write_gameid)
-			if (game_id && game_id[0] != '\0')
+			int audio_only = phys && physical_disc_toc_audio_only(&toc);
+			game_info_t game_info = {};
+			const char* game_id = "";
+			region_t region = region_t::UNKNOWN;
+			if (!audio_only)
 			{
-				user_io_write_gameid(filename, 0, game_id);
+				game_info = psx_get_game_info();
+				game_id = game_info.game_id;
+				region = psx_get_region();
+				if (region == region_t::UNKNOWN) region = game_info.region;
+				printf("Game ID: %s, region: %s\n", game_id, region_string(region));
+			}
+			// The core runs the BIOS of the region it got last: a disc of another region
+			// inserted with the tray needs a reset, or that BIOS stops in its menu.
+			int region_changed = s_hot_insert && region != region_t::UNKNOWN &&
+				s_swap_region != region_t::UNKNOWN && region != s_swap_region;
+			if (phys) s_swap_region = region;
+
+			static char disc_name[64];
+			if (phys)
+			{
+				char save_name[64] = "physical_disc";
+				physical_disc_save_name(PHYSICAL_DISC_DISC_PSX, save_name, sizeof(save_name));
+				snprintf(disc_name, sizeof(disc_name), "%s",
+					(game_id && game_id[0]) ? game_id : save_name);
+			}
+			const char *name = phys ? disc_name : filename;
+
+			if (!audio_only && game_id && game_id[0] != '\0')
+			{
+				user_io_write_gameid(name, 0, game_id);
 			}
 
-			int name_len = strlen(filename);
+			int name_len = strlen(name);
 
-			if (toc.tracks[0].type) // is first track a data?
+			if (!audio_only && toc.tracks[0].type) 
 			{
-				const char *p = strrchr(filename, '/');
-				int cur_len = p ? p - filename : 0;
+				const char *p = strrchr(name, '/');
+				int cur_len = p ? p - name : 0;
 				int old_len = strlen(last_dir);
 
-				int same_game = old_len && (cur_len == old_len) && !strncmp(last_dir, filename, old_len);
+				int same_game = old_len && (cur_len == old_len) && !strncmp(last_dir, name, old_len);
+
+				if (phys) same_game = 0;
 
 				if (!same_game)
 				{
@@ -722,14 +961,19 @@ void psx_mount_cd(int f_index, int s_index, const char *filename)
 						strcat(last_dir, "/noreset.txt");
 						noreset = FileExists(last_dir);
 					}
-					reset = !noreset;
+					// A disc inserted while the core runs (tray close) is handled like on a real
+					// PSX: the BIOS reads it (CD player shows the tracks) and the game boots
+					// only when the user leaves the shell, so the core is not reset, unless
+					// the disc is from another region.
+					reset = !noreset && (!s_hot_insert || region_changed);
+					if (reset && s_hot_insert) printf("PSX: disc of another region, core reset\n");
 
-					strcpy(last_dir, filename);
+					strcpy(last_dir, name);
 					char *p = strrchr(last_dir, '/');
 					if (p) *p = 0;
 					else *last_dir = 0;
 
-					if (reset)
+					if (reset && !phys)
 					{
 						int bios_loaded = 0;
 
@@ -755,54 +999,170 @@ void psx_mount_cd(int f_index, int s_index, const char *filename)
 
 					}
 
-					if (!(user_io_status_get("[63]"))) psx_mount_save(last_dir);
+					if (!(user_io_status_get("[63]"))) psx_mount_save(phys ? name : last_dir);
 				}
 			}
 
 			uint16_t mask = 0;
 
-			fileTYPE sbi_file = {};
-			bool has_sbi_file = false;
-
-			// search for .sbi file in PSX/sbi.zip
-			sprintf(buf, "%s/sbi.zip/%s.sbi", HomeDir(), game_id);
-			has_sbi_file = (FileOpen(&sbi_file, buf, 1));
-
-			if (!has_sbi_file)
+			if (!audio_only)
 			{
-				// search for .sbi file base on image name
-				strcpy(buf, filename);
-				strcpy((name_len > 4) ? buf + name_len - 4 : buf + name_len, ".sbi");
-				has_sbi_file = (FileOpen(&sbi_file, buf, 1));
-			}
+				// LibCrypt key: .sbi, or the real subchannel of the disc/image (data discs only)
+				mask = libCryptKey(game_id, phys, phys ? NULL : filename, toc.tracks[0].type != 0);
 
-			if (has_sbi_file)
-			{
-				printf("Found SBI file: %s\n", buf);
-				mask = libCryptMask(&sbi_file);
+				process_ss(name, name_len != 0);
 			}
-
-			process_ss(filename, name_len != 0);
+			psx_boot_hold(0); // disc is ready: let the core start (no-op unless held)
 			send_cue_and_metadata(&toc, mask, region, reset);
 
 			user_io_set_index(f_index);
 
 			mount_cd(toc.end*CD_SECTOR_LEN, s_index);
 			loaded = 1;
+
+			if (phys) physical_disc_swap_enable(1);
 		}
 	}
 
 	if (!loaded)
 	{
 		printf("Unmount CD\n");
+		physical_disc_swap_enable(0);
+		if (toc.phys) unload_phys(&toc);
 		unload_cue(&toc);
 		unload_chd(&toc);
 		mount_cd(0, s_index);
+
+		// physical disc mode without a readable disc: wait for the tray
+		if (phys)
+		{
+			s_wait_disc = 1;
+			s_wait_next = GetTimer(500);
+		}
+	}
+	else physical_disc_tray_release();
+
+	return loaded;
+}
+
+static void psx_swap_apply()
+{
+	toc_t nt = {};
+	if (physical_disc_current_toc(&nt) || !nt.last) return;
+	// Re-run PSX pregap enrichment for the newly inserted physical disc before
+	// applying the PSX LBA bias. physical_disc_current_toc() intentionally
+	// returns the generic drive TOC, so INDEX 00 data has to be restored here.
+	physical_disc_psx_enrich_toc(&nt);
+	apply_disc_bias(&nt);
+	toc = nt;   
+
+	region_t region = s_swap_region;
+
+	// LibCrypt key of the new disc (multi-disc games have it on every disc)
+	uint16_t mask = 0;
+	if (!physical_disc_toc_audio_only(&toc))
+	{
+		game_info_t gi = psx_get_game_info();
+		printf("PSX: disc swap -> game ID %s\n", gi.game_id);
+		mask = libCryptKey(gi.game_id, 1, NULL, toc.tracks[0].type != 0);
+	}
+
+	printf("PSX: disc swap -> region %s\n", region_string(region));
+	send_cue_and_metadata(&toc, mask, region, 0);
+	user_io_set_index(s_swap_fidx);
+	mount_cd(toc.end * CD_SECTOR_LEN, s_swap_sidx);
+	s_swap_eject_notified = 0;
+}
+
+void psx_swap_disc()
+{
+	if (!toc.phys)
+	{
+		printf("PSX: swap_disc ignored - the running game is not on a physical disc\n");
+		return;
+	}
+	toc_t scratch = {};
+	if (physical_disc_load_toc(&scratch) || !scratch.last)
+	{
+		printf("PSX: swap_disc - new disc not ready, wait a moment and retry\n");
+		return;
+	}
+	psx_swap_apply();
+}
+
+// Watch the tray while the physical disc core runs with no disc mounted.
+// Only the tray state is read (no spin-up, no data read); the disc itself is
+// read once, when the tray goes from open/empty to closed with a disc.
+static void psx_wait_disc_poll()
+{
+	if (!s_wait_disc || toc.phys || physical_disc_launch_busy()) return;
+	if (!CheckTimer(s_wait_next)) return;
+	s_wait_next = GetTimer(500);
+
+	physical_disc_tray_t st = physical_disc_tray_status();
+	switch (st)
+	{
+	case PHYSICAL_DISC_TRAY_NODRIVE:
+		s_wait_next = GetTimer(5000);
+		return;
+
+	case PHYSICAL_DISC_TRAY_EMPTY:
+		if (!s_wait_armed) printf("PSX: tray open/empty, waiting for a disc\n");
+		s_wait_armed = 1;
+		s_wait_retries = 0;
+		return;
+
+	case PHYSICAL_DISC_TRAY_NOTREADY:
+		s_wait_armed = 1; // tray just closed, disc spinning up
+		return;
+
+	case PHYSICAL_DISC_TRAY_DISC:
+		if (!s_wait_armed) return; // unreadable disc still inside: open/close to retry
+		if (!s_wait_retries) s_wait_retries = 10;
+		break;
+	}
+
+	printf("PSX: tray closed with a disc, reading it\n");
+	physical_disc_tray_release();
+	s_hot_insert = 1;
+	int mounted = psx_mount_cd(s_swap_fidx, s_swap_sidx, PHYSICAL_DISC_SENTINEL);
+	s_hot_insert = 0;
+	if (mounted)
+	{
+		s_wait_armed = 0;
+		s_wait_retries = 0;
+		return;
+	}
+
+	// TOC not readable yet right after the close: retry for a few seconds
+	s_wait_next = GetTimer(1000);
+	if (--s_wait_retries <= 0)
+	{
+		printf("PSX: disc could not be read, open and close the tray to retry\n");
+		Info("Disc could not be read", 3000);
+		s_wait_armed = 0;
 	}
 }
 
 void psx_poll()
 {
+	psx_wait_disc_poll();
+
+	if (toc.phys)
+	{
+		if (physical_disc_swap_consume())
+		{
+			psx_swap_apply();
+		}
+		else if (physical_disc_swap_ejected() && !s_swap_eject_notified)
+		{
+			printf("PSX: physical disc ejected\n");
+			user_io_set_index(s_swap_fidx);
+			mount_cd(0, s_swap_sidx);
+			s_swap_eject_notified = 1;
+		}
+	}
+
 	spi_uio_cmd(UIO_CD_GET);
 }
 

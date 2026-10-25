@@ -1,3 +1,9 @@
+
+
+// 2009-11-14   - OSD labels changed
+// 2009-12-15   - added display of directory name extensions
+// 2010-01-09   - support for variable number of tracks
+// 2016-06-01   - improvements to 8-bit menu
 /*
 Copyright 2005, 2006, 2007 Dennis van Weeren
 Copyright 2008, 2009 Jakub Bednarski
@@ -17,12 +23,6 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-
-// 2009-11-14   - OSD labels changed
-// 2009-12-15   - added display of directory name extensions
-// 2010-01-09   - support for variable number of tracks
-// 2016-06-01   - improvements to 8-bit menu
-
 #include <stdlib.h>
 #include <inttypes.h>
 #include <ctype.h>
@@ -64,6 +64,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "joymapping.h"
 #include "recent.h"
 #include "support.h"
+#include "support/physical_disc/physical_disc_launch.h"
+#include "support/megadrive/mdplus.h"
+#include "support/snes/snes.h"
 #include "bootcore.h"
 #include "ide.h"
 #include "profiling.h"
@@ -276,7 +279,7 @@ const char *config_smask_msg[] = { "None", "1x", "2x", "1x Rotated", "2x Rotated
 const char *config_scale[] = { "Normal", "V-Integer", "HV-Integer-", "HV-Integer+", "HV-Integer", "???", "???", "???" };
 
 #define DPAD_NAMES 4
-#define DPAD_BUTTON_NAMES 12  //DPAD_NAMES + 6 buttons + start/select
+#define DPAD_BUTTON_NAMES 12 //DPAD_NAMES + 6 buttons + start/select
 
 #define script_line_length 1024
 #define script_lines 50
@@ -287,6 +290,11 @@ static int script_line;
 static char script_output[script_lines][script_line_length];
 static char script_line_output[script_line_length];
 static bool script_finished;
+static bool script_command_override;
+static bool script_override_graphical;
+static char script_override_command[script_line_length * 2];
+static char script_override_title[128];
+static char script_override_process[128];
 
 // one screen width
 static const char* HELPTEXT_SPACER = "                                ";
@@ -1112,6 +1120,7 @@ void build_advanced_map_summary(advancedButtonMap *abm, char *dest_str, size_t d
 static void *close_pipe_async(void *arg)
 {
 	pclose((FILE *)arg);
+	physical_disc_launch_resume_menu_discovery();
 	return NULL;
 }
 
@@ -1121,6 +1130,33 @@ static int phosphor_fb_req = -1;
 void menu_phosphor_screen(int phosphor)
 {
 	phosphor_fb_req = phosphor;        // done in HandleUI, where the menu state lives
+}
+
+static int menu_queue_script_command(const char *command, const char *title, const char *process_name, bool graphical)
+{
+	if (!command || !*command || !is_menu()) return 0;
+
+	strncpy(script_override_command, command, sizeof(script_override_command) - 1);
+	script_override_command[sizeof(script_override_command) - 1] = 0;
+	strncpy(script_override_title, (title && *title) ? title : "Script", sizeof(script_override_title) - 1);
+	script_override_title[sizeof(script_override_title) - 1] = 0;
+	strncpy(script_override_process, (process_name && *process_name) ? process_name : "", sizeof(script_override_process) - 1);
+	script_override_process[sizeof(script_override_process) - 1] = 0;
+	script_command_override = true;
+	script_override_graphical = graphical;
+	parentstate = MENU_SCRIPTS;
+	menustate = MENU_SCRIPTS;
+	return 1;
+}
+
+int menu_launch_script_command(const char *command, const char *title, const char *process_name)
+{
+	return menu_queue_script_command(command, title, process_name, false);
+}
+
+int menu_launch_graphical_script_command(const char *command, const char *title, const char *process_name)
+{
+	return menu_queue_script_command(command, title, process_name, true);
 }
 
 void HandleUI(void)
@@ -1296,7 +1332,19 @@ void HandleUI(void)
 		c = phosphor_filter_key(menu_key_get());
 	}
 
-	// decode and set events
+	if (mgl->done && physical_disc_launch_consume_startup_osd_suppression())
+	{
+		menustate = MENU_NONE1;
+		OsdDisable();
+	}
+
+	if (mdplus_cd_suppress_osd() || snes_cd_suppress_osd())
+	{
+		c = 0;
+		menustate = MENU_NONE1;
+		OsdDisable();
+	}
+
 	menu = false;
 	back = false;
 	select = false;
@@ -1309,6 +1357,8 @@ void HandleUI(void)
 	recent = false;
 
 	if (c && cfg.bootcore[0] != '\0') cfg.bootcore[0] = '\0';
+
+	if (c) physical_disc_launch_cancel();
 
 	if (!select_ini && is_menu() && cfg.osd_timeout >= 5)
 	{
@@ -1569,7 +1619,7 @@ void HandleUI(void)
 	{
 		if (down)
 		{
-			if((menumask >= ((uint64_t)1 << (menusub + 1))))	// Any active entries left?
+			if((menumask >= ((uint64_t)1 << (menusub + 1)))) // Any active entries left?
 			{
 				do
 				{
@@ -1665,7 +1715,7 @@ void HandleUI(void)
 
 	case MENU_INFO:
 		if (CheckTimer(menu_timer)) menustate = MENU_NONE1;
-		// fall through
+		__attribute__((fallthrough));
 
 	case MENU_NONE2:
 		if (menu && !osd_unlocked)
@@ -1863,8 +1913,8 @@ void HandleUI(void)
 		{
 			switch (menusub)
 			{
-			case 0:  // Floppy 0
-			case 1:  // Floppy 1
+			case 0: // Floppy 0
+			case 1: // Floppy 1
 				if (select)
 				{
 					ioctl_index = 0;
@@ -1872,8 +1922,8 @@ void HandleUI(void)
 				}
 				break;
 
-			case 2:  // HDD 0
-			case 3:  // HDD 1
+			case 2: // HDD 0
+			case 3: // HDD 1
 				if (select)
 				{
 					ioctl_index = 1;
@@ -1881,7 +1931,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 4:  // Load ROM
+			case 4: // Load ROM
 				if (select)
 				{
 					ioctl_index = 0;
@@ -1924,7 +1974,7 @@ void HandleUI(void)
 				menustate = MENU_ARCHIE_MAIN1;
 				break;
 
-			case 12:  // Exit
+			case 12: // Exit
 				if (select) menustate = MENU_NONE1;
 				break;
 			}
@@ -2684,7 +2734,15 @@ void HandleUI(void)
 									user_io_status_set(opt, 0, ex);
 
 									menustate = MENU_GENERIC_MAIN1;
-									if (p[0] == 'R' || p[0] == 'r') menustate = MENU_NONE1;
+									if (p[0] == 'R' || p[0] == 'r')
+									{
+										// 'R' covers every momentary option, not just Reset - the PSX core
+										// also uses it for Save state, Restore state and Save Memory Cards.
+										// Re-mounting on those killed the core mid-save, so only do it for
+										// an actual reset (bit 0).
+										if (!bit) physical_disc_launch_reset();
+										menustate = MENU_NONE1;
+									}
 								}
 							}
 						}
@@ -3896,7 +3954,7 @@ void HandleUI(void)
                 {
                     menumask |= 1 << m;
                     const char * uart_msg = config_uart_msg[m];
-                    while (*uart_msg == ' ') {uart_msg++;}//skip spaces
+                    while (*uart_msg == ' ') {uart_msg++;} //skip spaces
                     sprintf(s, "         %s", uart_msg);
                     OsdWrite(i, s, menusub == m, 0);
 					m++;
@@ -4811,7 +4869,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 5:  // System submenu
+			case 5: // System submenu
 				if (select)
 				{
 					menustate = MENU_ST_SYSTEM1;
@@ -4820,7 +4878,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 6:  // Load config
+			case 6: // Load config
 				if (select)
 				{
 					menustate = MENU_ST_LOAD_CONFIG1;
@@ -4828,7 +4886,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 7:  // Save config
+			case 7: // Save config
 				if (select)
 				{
 					menustate = MENU_ST_SAVE_CONFIG1;
@@ -4844,7 +4902,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 9:  // Reset
+			case 9: // Reset
 				if (select)
 				{
 					tos_reset(0);
@@ -4852,7 +4910,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 10:  // Cold Boot
+			case 10: // Cold Boot
 				if (select)
 				{
 					tos_insert_disk(0, "");
@@ -4862,7 +4920,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 11:  // Exit
+			case 11: // Exit
 				if (select)
 				{
 					menustate = MENU_NONE1;
@@ -5007,7 +5065,7 @@ void HandleUI(void)
 			case 3:
 				{
 					// RAM
-					int mem = (tos_system_ctrl() >> 1) & 7;   // current memory config
+					int mem = (tos_system_ctrl() >> 1) & 7; // current memory config
 					if (minus)
 					{
 						mem--;
@@ -5024,7 +5082,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 4:  // TOS
+			case 4: // TOS
 				if (select) SelectFile(Selected_F[menusub], "IMG", SCANO_DIR, MENU_ST_SYSTEM_FILE_SELECTED, MENU_ST_SYSTEM1);
 				break;
 
@@ -5154,7 +5212,7 @@ void HandleUI(void)
 		helptext_idx = 0;
 		OsdSetTitle("Load Config", 0);
 
-		if (parentstate != menustate)	// First run?
+		if (parentstate != menustate) // First run?
 		{
 			parentstate = menustate;
 			menumask = 0x201;
@@ -5623,7 +5681,7 @@ void HandleUI(void)
 
 		if (menu)
 		{
-			if (flist_nDirEntries() && flist_SelectedItem()->de.d_type != DT_DIR)
+			if (flist_nDirEntries() && flist_SelectedItem()->de.d_type != DT_DIR && !physical_disc_is_menu_row(flist_SelectedItem()->de.d_name))
 			{
 				SelectedDir[0] = 0;
 				if (strlen(selPath))
@@ -5740,6 +5798,12 @@ void HandleUI(void)
 				static char name[256];
 				char type = flist_SelectedItem()->de.d_type;
 				memcpy(name, flist_SelectedItem()->de.d_name, sizeof(name));
+
+				if (physical_disc_is_menu_row(name))
+				{
+					physical_disc_launch_load_disc();
+					break;
+				}
 
 				if ((fs_Options & SCANO_UMOUNT) && (is_megacd() || is_pce() || is_cdi() || is_neogeo() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_saturn() || is_3do() || (is_marty() && ioctl_index == MARTY_SLOT_CD) || (is_pcfx() && ioctl_index == PCFX_SLOT_CD)) && type == DT_DIR && strcmp(flist_SelectedItem()->de.d_name, ".."))
 				{
@@ -5976,7 +6040,7 @@ void HandleUI(void)
 		if (is_minimig()) m = 1;
 		helptext_idx = 0;
 		OsdSetTitle("Reset", 0);
-		menumask = 0x03;	// Yes / No
+		menumask = 0x03; // Yes / No
 		parentstate = menustate;
 
 		OsdWrite(0, "", 0, 0);
@@ -6062,7 +6126,7 @@ void HandleUI(void)
 					s[3] = i + '0';
 					if (i < minimig_floppy_active_count() && i < requested_floppy_count)
 					{
-						menumask |= (1 << i);	// Make enabled drives selectable
+						menumask |= (1 << i); // Make enabled drives selectable
 
 						if (df[i].status & DSK_INSERTED) // floppy disk is inserted
 						{
@@ -7711,7 +7775,7 @@ void HandleUI(void)
 
 			case 2:
 				FileSaveConfig("script_confirm", card_cid, 32);
-				// fall through
+				__attribute__((fallthrough));
 
 			case 1:
 				SelectFile(Selected_F[0], "SH", SCANO_DIR, MENU_SCRIPTS_FB, MENU_SYSTEM1);
@@ -7734,6 +7798,7 @@ void HandleUI(void)
 
 			unlink("/tmp/script");
 			FileSave("/tmp/script", cmd, strlen(cmd));
+			physical_disc_launch_suspend_menu_discovery();
 			ttystatus = 0;
 			ttypid = fork();
 			if (!ttypid)
@@ -7754,6 +7819,7 @@ void HandleUI(void)
 			if (waitpid(ttypid, 0, WNOHANG) > 0)
 			{
 				ttypid = 0;
+				physical_disc_launch_resume_menu_discovery();
 				user_io_osd_key_enable(1);
 			}
 		}
@@ -7794,17 +7860,33 @@ void HandleUI(void)
 			menustate = MENU_BTPAIR2;
 			break;
 		}
-		//fall through
+		__attribute__((fallthrough));
 
 	case MENU_SCRIPTS:
 		helptext_idx = 0;
 		menumask = 0;
 		menusub = 0;
-		if(parentstate != MENU_BTPAIR) OsdSetTitle(flist_SelectedItem()->de.d_name);
+		if(parentstate != MENU_BTPAIR && !script_override_graphical) OsdSetTitle(script_command_override ? script_override_title : flist_SelectedItem()->de.d_name);
 		menustate = MENU_SCRIPTS1;
 		if (parentstate != MENU_BTPAIR) parentstate = MENU_SCRIPTS;
-		for (int i = 0; i < OsdGetSize() - 1; i++) OsdWrite(i);
-		OsdWrite(OsdGetSize() - 1, (parentstate == MENU_BTPAIR) ? "           Finish" : "           Cancel", menusub == 0, 0);
+		if (script_override_graphical)
+		{
+			// Graphical foreground applications draw directly to /dev/fb0.
+			// Route the MiSTer video output to the Linux framebuffer just like
+			// the normal fb_terminal script path does.
+			OsdDisable();
+			video_chvt(2);
+			video_fb_enable(1);
+			vga_nag();
+			// The graphical script output is redirected, so its ANSI cursor-hide
+			// escape never reaches tty2. Hide the Linux console cursor explicitly.
+			system("printf '\\033[?25l' > /dev/tty2");
+		}
+		else
+		{
+			for (int i = 0; i < OsdGetSize() - 1; i++) OsdWrite(i);
+			OsdWrite(OsdGetSize() - 1, (parentstate == MENU_BTPAIR) ? "           Finish" : "           Cancel", menusub == 0, 0);
+		}
 		for (int i = 0; i < script_lines; i++) strcpy(script_output[i], "");
 		script_line=0;
 		script_finished = false;
@@ -7822,17 +7904,21 @@ void HandleUI(void)
 		}
 		else
 		{
-			script_pipe = popen(getFullPath(selPath), "r");
+			physical_disc_launch_suspend_menu_discovery();
+			script_pipe = popen(script_command_override ? script_override_command : getFullPath(selPath), "r");
 		}
 		script_file = fileno(script_pipe);
 		fcntl(script_file, F_SETFL, O_NONBLOCK);
 		break;
 
 	case MENU_SCRIPTS1:
+		// Graphical foreground applications own the framebuffer while running.
+		// Keep MiSTer's OSD hidden for their entire lifetime.
+		if (script_override_graphical) OsdDisable();
 		if (!script_finished)
 		{
 			if (!feof(script_pipe)) {
-				if (fgets(script_line_output, script_line_length, script_pipe) != NULL)
+				if (fgets(script_line_output, script_line_length, script_pipe) != NULL && !script_override_graphical)
 				{
 					script_line_output[strcspn(script_line_output, "\n")] = 0;
 					if (script_line < OsdGetSize() - 2)
@@ -7849,12 +7935,28 @@ void HandleUI(void)
 			}
 			else {
 				pclose(script_pipe);
+				script_pipe = NULL;
+				if (parentstate != MENU_BTPAIR) physical_disc_launch_resume_menu_discovery();
 				cpu_set_t set;
 				CPU_ZERO(&set);
 				CPU_SET(1, &set);
 				sched_setaffinity(0, sizeof(set), &set);
+				bool was_graphical = script_override_graphical;
 				script_finished=true;
-				OsdWrite(OsdGetSize() - 1, "             OK", menusub == 0, 0);
+				script_command_override = false;
+				script_override_graphical = false;
+				if (was_graphical)
+				{
+					// Mirror the normal framebuffer-script teardown. Merely disabling
+					// the framebuffer leaves the OSD disabled after our repeated
+					// OsdDisable() calls, resulting in a wallpaper-only menu.
+					system("printf '\\033[?25h' > /dev/tty2");
+					video_menu_bg(user_io_status_get("[3:1]"));
+					video_fb_enable(0);
+					OsdClear();
+					OsdEnable(DISABLE_KEYBOARD);
+				}
+				else OsdWrite(OsdGetSize() - 1, "             OK", menusub == 0, 0);
 			};
 		};
 
@@ -7863,18 +7965,34 @@ void HandleUI(void)
 			if (!script_finished)
 			{
 				strcpy(script_command, "killall ");
-				strcat(script_command, (parentstate == MENU_BTPAIR) ? "-SIGINT btpair btctl" : flist_SelectedItem()->de.d_name);
+				if (parentstate == MENU_BTPAIR) strcat(script_command, "-SIGINT btpair btctl");
+				else if (script_command_override && script_override_process[0]) strcat(script_command, script_override_process);
+				else strcat(script_command, flist_SelectedItem()->de.d_name);
 				system(script_command);
+				bool was_graphical = script_override_graphical;
 				FILE *p = script_pipe;
 				script_pipe = NULL;
 				pthread_t tid;
 				if (!pthread_create(&tid, NULL, close_pipe_async, p)) pthread_detach(tid);
-				else { printf("close_pipe_async: pthread_create failed\n"); pclose(p); }
+				else { printf("close_pipe_async: pthread_create failed\n"); pclose(p); physical_disc_launch_resume_menu_discovery(); }
 				cpu_set_t set;
 				CPU_ZERO(&set);
 				CPU_SET(1, &set);
 				sched_setaffinity(0, sizeof(set), &set);
 				script_finished = true;
+				script_command_override = false;
+				script_override_graphical = false;
+				if (was_graphical)
+				{
+					// Mirror the normal framebuffer-script teardown. Merely disabling
+					// the framebuffer leaves the OSD disabled after our repeated
+					// OsdDisable() calls, resulting in a wallpaper-only menu.
+					system("printf '\\033[?25h' > /dev/tty2");
+					video_menu_bg(user_io_status_get("[3:1]"));
+					video_fb_enable(0);
+					OsdClear();
+					OsdEnable(DISABLE_KEYBOARD);
+				}
 			};
 
 			if (c == KEY_BACKSPACE && (parentstate == MENU_BTPAIR))
@@ -8359,9 +8477,27 @@ void HandleUI(void)
 
 		if (!rtc_timer || CheckTimer(rtc_timer))
 		{
-			rtc_timer = GetTimer(cfg.bootcore[0] != '\0' ? 100 : 1000);
 			char str[64] = { 0 };
 			char straux[64];
+
+			physical_disc_launch_menu_tick();
+
+			if (menustate == MENU_FILE_SELECT2 && (fs_Options & SCANO_CORES)
+				&& strcasestr(fs_pFileExt, "RBF") && !physical_disc_launch_busy()
+				&& physical_disc_menu_dirty())
+			{
+
+				static char keep[256];
+				keep[0] = 0;
+				if (flist_nDirEntries() && !physical_disc_is_menu_row(flist_SelectedItem()->de.d_name))
+					snprintf(keep, sizeof(keep), "%s", flist_SelectedItem()->de.d_name);
+
+				ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options, NULL, filter[0] ? filter : NULL);
+				flist_select_by_name(keep);
+				menustate = MENU_FILE_SELECT1;
+			}
+
+			rtc_timer = GetTimer((cfg.bootcore[0] != '\0' || physical_disc_launch_busy()) ? 100 : 1000);
 
 			if (cfg.bootcore[0] != '\0')
 			{
@@ -8641,7 +8777,7 @@ static void set_text(const char *message, unsigned char code)
 		{
 			s[--i] = 0;
 			OsdWrite(l++, s, 0, 0);
-			i = 0;  // start next line
+			i = 0; // start next line
 		}
 	} while (*message++);
 

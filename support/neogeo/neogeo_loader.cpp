@@ -4,9 +4,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <time.h>   // clock_gettime, CLOCK_REALTIME
+#include <time.h> // clock_gettime, CLOCK_REALTIME
 #include "neogeo_loader.h"
 #include "neogeocd.h"
+#include "../physical_disc/physical_disc.h"
 #include "../../sxmlc.h"
 #include "../../user_io.h"
 #include "../../fpga_io.h"
@@ -24,8 +25,8 @@ struct NeoFile
 	uint32_t NGH;
 	uint8_t Name[33];
 	uint8_t Manu[17];
-	uint8_t Filler[128 + 290];	//fill to 512
-	uint8_t Filler2[4096 - 512];	//fill to 4096
+	uint8_t Filler[128 + 290]; //fill to 512
+	uint8_t Filler2[4096 - 512]; //fill to 4096
 };
 
 static inline void spr_convert(uint16_t* buf_in, uint16_t* buf_out, uint32_t size)
@@ -133,7 +134,7 @@ static const char *get_name(const char *path, const char *name)
 static uint32_t neogeo_file_tx(const char* path, const char* name, uint8_t neo_file_type, uint8_t index, uint32_t offset, uint32_t size)
 {
 	fileTYPE f = {};
-	uint8_t buf[4096];	// Same in user_io_file_tx
+	uint8_t buf[4096]; // Same in user_io_file_tx
 	uint8_t buf_out[4096];
 	static char name_buf[1024];
 
@@ -1051,18 +1052,18 @@ void load_neo(char *path)
 					bool skip = false;
 					switch (hdr.NGH) {
 						case 0x0251: if (hdr.PSize != 9437184) skip = true; break; // (kof99 prototype vs final)
-						case 0x0253: if (hdr.PSize != 9437184) skip = true;        // (garou prototype vs the different SMA chip versions) garouh needs SMA=3
+						case 0x0253: if (hdr.PSize != 9437184) skip = true; // (garou prototype vs the different SMA chip versions) garouh needs SMA=3
 							if (hdr.Name[27] == 'A')
-								{sma = 3; cmc = 1; mir = 0; skip = true;}          // (Not ideal, but their headers are otherwise identical)
+								{sma = 3; cmc = 1; mir = 0; skip = true;} // (Not ideal, but their headers are otherwise identical)
 							break;
 						case 0x0256: if (hdr.PSize != 9437184) skip = true; break; // (mslug3 using SMA vs normal banking)
 						case 0x0263: if (hdr.SSize != 524288)  skip = true; break; // (mslug4 bootlegs vs original)
-						case 0x0268: if (hdr.PSize == 5242880) ms5p = 1;           // (mslug5 bootlegs vs original)
+						case 0x0268: if (hdr.PSize == 5242880) ms5p = 1; // (mslug5 bootlegs vs original)
 							if (hdr.PSize != 8388608) skip = true;
 							break;
-						case 0x0269: if (hdr.PSize != 8388608)  skip = true;        // (svc bootlegs vs original)
+						case 0x0269: if (hdr.PSize != 8388608)  skip = true; // (svc bootlegs vs original)
 							if (hdr.Name[15] == 'S')
-								{cmc = 0; pvc = 1;  skip = true;}                   // (svcsplus requires pvc=1)
+								{cmc = 0; pvc = 1;  skip = true;} // (svcsplus requires pvc=1)
 							break;
 						case 0x0271: if (hdr.PSize != 9437184) skip = true; break; // (kof2003 bootlegs vs original)
 					}
@@ -1140,9 +1141,14 @@ void load_neo(char *path)
 
 int neogeo_romset_tx(char* name, int cd_en)
 {
+
+	int phys = !strcmp(name, PHYSICAL_DISC_SENTINEL);
+	int cd_bios_ok = 1;   
+
 	char *romset = strrchr(name, '/');
-	if (!romset) return 0;
-	romset++;
+	if (romset) romset++;
+	else if (phys) romset = name;   
+	else return 0;
 
 	int system_mvs, system_cdz;
 	static char full_path[1024];
@@ -1155,7 +1161,7 @@ int neogeo_romset_tx(char* name, int cd_en)
 	uint16_t mask = spi_w(0);
 	DisableIO();
 
-	user_io_status_set("[0]", 1);	// Maintain reset
+	user_io_status_set("[0]", 1); // Maintain reset
 
 	crom_sz_max = 0;
 	crom_start = 0;
@@ -1239,10 +1245,14 @@ int neogeo_romset_tx(char* name, int cd_en)
 			if (!(mask & 0x8000) && FileExists(full_path)) {
 				neogeo_tx(home, "uni-bioscd.rom", NEO_FILE_RAW, 0, 0, 0x80000);
 			} else if (!system_cdz) {
-				// NeoGeo CD
+
+				sprintf(full_path, "%s/top-sp1.bin", home);
+				cd_bios_ok = FileExists(full_path);
 				neogeo_tx(home, "top-sp1.bin", NEO_FILE_RAW, 0, 0, 0x80000);
 			} else {
-				// NeoGeo CDZ
+
+				sprintf(full_path, "%s/neocd.bin", home);
+				cd_bios_ok = FileExists(full_path);
 				neogeo_tx(home, "neocd.bin", NEO_FILE_RAW, 0, 0, 0x80000);
 			}
 		}
@@ -1269,10 +1279,12 @@ int neogeo_romset_tx(char* name, int cd_en)
 
 	notify_conf();
 
-	FileGenerateSavePath(name, (char*)full_path);
+	char save_name[64] = "physical_disc";
+	if (phys) physical_disc_save_name(PHYSICAL_DISC_DISC_NEOGEO, save_name, sizeof(save_name));
+	FileGenerateSavePath(phys ? save_name : name, (char*)full_path);
 	user_io_file_mount((char*)full_path, 0, 1);
 
 	user_io_status_set("[0]", 0); // Release reset
 
-	return 1;
+	return cd_bios_ok;
 }

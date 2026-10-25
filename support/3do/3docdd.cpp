@@ -6,6 +6,7 @@
 
 #include "3do.h"
 #include "../chd/mister_chd.h"
+#include "../physical_disc/physical_disc.h"
 
 p3docdd_t p3docdd;
 
@@ -135,7 +136,7 @@ int p3docdd_t::LoadCUE(const char* filename) {
 		{
 			if (this->toc.last == 99) break;
 			this->toc.last++;
-			
+
 			if (bb != (this->toc.last + 1))
 			{
 				FileClose(&this->toc.tracks[this->toc.last].f);
@@ -317,7 +318,21 @@ int p3docdd_t::Load(const char *filename)
 	Unload();
 
 	const char *ext = filename + strlen(filename) - 4;
-	if (!strncasecmp(".cue", ext, 4))
+	if (!strcmp(filename, PHYSICAL_DISC_SENTINEL))
+	{
+		if (physical_disc_current_toc(&this->toc))
+		{
+			if (physical_disc_open(NULL) || physical_disc_load_toc(&this->toc))
+			{
+				physical_disc_close();
+				printf("\x1b[32m3DO: no readable physical disc\n\x1b[0m");
+				return (-1);
+			}
+		}
+
+		this->sectorSize = 2352;
+	}
+	else if (!strncasecmp(".cue", ext, 4))
 	{
 		if (LoadCUE(filename)) {
 			return (-1);
@@ -393,6 +408,11 @@ void p3docdd_t::Unload()
 {
 	if (this->loaded)
 	{
+		if (this->toc.phys)
+		{
+			physical_disc_close();
+		}
+
 		if (this->toc.chd_f)
 		{
 			chd_close(this->toc.chd_f);
@@ -427,19 +447,19 @@ void p3docdd_t::Unload()
 
 int p3docdd_t::GetDiscInfo(uint8_t *buf) {
 	if (this->toc.last < 0) return -1;
-	
+
 	memset(buf, 0x00, 2048);
 
 	msf_t msf = { 0,2,0 };
 	LBAToMSF(this->toc.end + 150, &msf);
 
-	buf[1] = P3DO_DISC_DA_OR_CDROM;	//disc id
-	buf[2] = 0x01;	//first track
-	buf[3] = this->toc.last;	//last track
-	buf[4] = msf.m;	//mm
-	buf[5] = msf.s;	//ss
-	buf[6] = msf.f;	//ff
-	
+	buf[1] = P3DO_DISC_DA_OR_CDROM; //disc id
+	buf[2] = 0x01; //first track
+	buf[3] = this->toc.last; //last track
+	buf[4] = msf.m; //mm
+	buf[5] = msf.s; //ss
+	buf[6] = msf.f; //ff
+
 	for (int i = 0, offs = 0x10; i <= this->toc.last; i++, offs+=0x10)
 	{
 		LBAToMSF(this->toc.tracks[i].start + 150, &msf);
@@ -448,9 +468,9 @@ int p3docdd_t::GetDiscInfo(uint8_t *buf) {
 		buf[offs + 2] = this->toc.tracks[i].type == TT_CDDA ? 0x00 : 0x04;
 		buf[offs + 3] = i + 1;
 		buf[offs + 4] = 0;
-		buf[offs + 5] = msf.m;    //min
-		buf[offs + 6] = msf.s;    //sec
-		buf[offs + 7] = msf.f;    //frames
+		buf[offs + 5] = msf.m; //min
+		buf[offs + 6] = msf.s; //sec
+		buf[offs + 7] = msf.f; //frames
 		buf[offs + 8] = 0;
 	}
 
@@ -495,6 +515,8 @@ void p3docdd_t::CommandExec() {
 	case P3DO_COMM_READ:
 		this->lba = cmd_lba - 150;
 
+		if (this->toc.phys) physical_disc_seek_hint(this->lba);
+
 		this->track = this->toc.GetTrackByLBA(this->lba);
 
 		this->read_pend = true;
@@ -509,7 +531,7 @@ void p3docdd_t::CommandExec() {
 		printf("\x1b[32m3DO: ");
 		printf("Command Read Data: cmd_lba = %u, cmd_blocks = %u, track = %u, track_start = %u, speed = %u", cmd_lba, cmd_blocks, this->track + 1, this->toc.tracks[this->track].start, this->speed);
 		printf(" (%u)\n\x1b[0m", p3do_frame_cnt);
-#endif // P3DO_DEBUG 
+#endif // P3DO_DEBUG
 		break;
 
 	case P3DO_COMM_NEXT:
@@ -519,7 +541,7 @@ void p3docdd_t::CommandExec() {
 		//printf("\x1b[32m3DO: ");
 		//printf("Command Next Data");
 		//printf(" (%u)\n\x1b[0m", p3do_frame_cnt);
-#endif // P3DO_DEBUG 
+#endif // P3DO_DEBUG
 		break;
 
 	default:
@@ -551,7 +573,7 @@ void p3docdd_t::Process(uint8_t* time_mode) {
 
 		*time_mode = this->speed;
 
-		/*if (this->block_count >= 16)*/ this->read_pend = false;
+		 this->read_pend = false;
 
 #ifdef P3DO_DEBUG
 		//printf("\x1b[32m3DO: ");
@@ -675,11 +697,16 @@ int p3docdd_t::SetCommand(uint8_t* data) {
 void p3docdd_t::ReadData(uint8_t *buf)
 {
 	int offs = 0; 
-	
+
 	if (this->toc.tracks[this->track].type == TT_MODE1)
 	{
 		int lba_ = this->lba >= 0 ? this->lba : 0;
-		if (this->toc.chd_f)
+		if (this->toc.phys)
+		{
+
+			physical_disc_read_sector(lba_, buf, NULL);
+		}
+		else if (this->toc.chd_f)
 		{
 			int read_offset = 0;
 			if (this->sectorSize == 2048)

@@ -21,6 +21,7 @@
 #include <libchdr/chd.h>
 #include <arpa/inet.h>
 #include "cdg_unpacker.hpp"
+#include "../physical_disc/physical_disc.h"
 
 #define TIMEKEEPER_SIZE (8 * 1024)
 
@@ -35,7 +36,7 @@ static constexpr auto SERVO_AUDIO_CD_OPT = "[12]";
 // clang-format off
 static const uint8_t mode2_bootheader[] = {
 	0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, // Sync words
-	0x00, 0x02, 0x16														// MSF
+	0x00, 0x02, 0x16 // MSF
 };
 // clang-format on
 
@@ -362,10 +363,67 @@ static int load_cue(const char* filename, toc_t* table)
 	return 1;
 }
 
+static int load_physical_cd(toc_t* table)
+{
+	unload_cue(table);
+	unload_chd(table);
+	if (physical_disc_open(NULL))
+	{
+		physical_disc_close();
+		return 0;
+	}
+
+	physical_disc_native_speed(1);
+	if (physical_disc_load_toc(table))
+	{
+		physical_disc_close();
+		return 0;
+	}
+
+	int data_lba = -1;
+	for (int i = 0; i < table->last; i++)
+	{
+		if (table->tracks[i].type != TT_CDDA)
+		{
+			data_lba = table->tracks[i].start;
+			break;
+		}
+	}
+
+	if (data_lba >= 0)
+	{
+		uint8_t probe[CDI_SECTOR_LEN];
+		physical_disc_probe_sector(data_lba + 16, probe);
+		int ready = probe[0] == 0 && probe[11] == 0 && probe[15] == 2;
+		for (int i = 1; i < 11 && ready; i++) ready = probe[i] == 0xFF;
+		if (!ready)
+		{
+			physical_disc_close();
+			return 0;
+		}
+	}
+
+	for (int i = 0; i < table->last; i++)
+	{
+		table->tracks[i].start += 150;
+		table->tracks[i].end += 149;
+		table->tracks[i].type = table->tracks[i].type == TT_CDDA ? TT_CDDA : TT_MODE2;
+		table->tracks[i].indexes[1] = i ? 0 : 150;
+	}
+	table->end += 150;
+	return 1;
+}
+
 static int load_cd_image(const char* filename, toc_t* table)
 {
 	int result = 0;
 
+	if (!strcmp(filename, PHYSICAL_DISC_SENTINEL))
+	{
+		result = load_physical_cd(table);
+	}
+	else
+	{
 	const char* ext = strrchr(filename, '.');
 	if (!ext)
 		return 0;
@@ -377,6 +435,7 @@ static int load_cd_image(const char* filename, toc_t* table)
 	else if (!strncasecmp(".cue", ext, 4))
 	{
 		result = load_cue(filename, table);
+	}
 	}
 
 	// On a CDI 210/05 the SERVO has to provide the info
@@ -509,9 +568,8 @@ int cdi_chd_hunksize()
 	return 0;
 }
 
-// clang-format off
-
 // CRC routine from https://github.com/mamedev/mame/blob/master/src/mame/philips/cdicdic.cpp
+// clang-format off
 const uint16_t s_crc_ccitt_table[256] =
 	{
 		0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7,
@@ -933,6 +991,27 @@ void cdi_read_cd(uint8_t* buffer, int lba, int cnt)
 		}
 		else
 		{
+			if (toc.phys)
+			{
+				int disc_lba = lba - 150;
+				if (disc_lba >= 0 && lba < toc.end)
+				{
+					physical_disc_seek_hint(disc_lba);
+					physical_disc_read_sector(disc_lba, buffer, NULL);
+				}
+				else
+					memset(buffer, 0, CDI_SECTOR_LEN);
+				check_scramble(lba, buffer);
+				buffer += CDI_SECTOR_LEN;
+				struct subcode& subcode_out = *reinterpret_cast<struct subcode*>(buffer);
+				subcode_q_data(lba, subcode_out);
+				memset(subcode_out.rw, 0, sizeof(subcode_out.rw));
+				buffer += sizeof(struct subcode);
+				cnt--;
+				lba++;
+				continue;
+			}
+
 			// Iterate over all CD tracks and ...
 			for (int i = 0; i < toc.last; i++)
 			{
@@ -1114,7 +1193,7 @@ static void mount_cd(int size, int index)
 /// Must be static to keep the value between mount calls
 static char last_dir[1024] = "";
 
-void cdi_mount_cd(int s_index, const char* filename)
+int cdi_mount_cd(int s_index, const char* filename)
 {
 	int loaded = 0;
 
@@ -1122,26 +1201,34 @@ void cdi_mount_cd(int s_index, const char* filename)
 	{
 		if (load_cd_image(filename, &toc) && toc.last)
 		{
-			const char* p = strrchr(filename, '/');
-			int cur_len = p ? p - filename : 0;
-			int old_len = strlen(last_dir);
-
-			int same_game = old_len && (cur_len == old_len) && !strncmp(last_dir, filename, old_len);
+			int audio_only = !strcmp(filename, PHYSICAL_DISC_SENTINEL) && physical_disc_toc_audio_only(&toc);
+			if (!audio_only && !strcmp(filename, PHYSICAL_DISC_SENTINEL))
+			{
+				char save_name[64] = "physical_disc";
+				physical_disc_save_name(PHYSICAL_DISC_DISC_UNKNOWN, save_name, sizeof(save_name));
+				cdi_mount_save(save_name);
+			}
+			else if (!audio_only)
+			{
+				const char* p = strrchr(filename, '/');
+				int cur_len = p ? p - filename : 0;
+				int old_len = strlen(last_dir);
+				int same_game = old_len && (cur_len == old_len) && !strncmp(last_dir, filename, old_len);
 
 			// Handle multi disc titles and avoid re-mounting the save file
 			// to avoid resets on the core
-			if (!same_game)
-			{
-				snprintf(last_dir, sizeof(last_dir), "%s", filename);
-				char* p = strrchr(last_dir, '/');
-				if (p)
-					*p = 0;
-				else
-					*last_dir = 0;
-
+				if (!same_game)
+				{
+					snprintf(last_dir, sizeof(last_dir), "%s", filename);
+					char* p = strrchr(last_dir, '/');
+					if (p)
+						*p = 0;
+					else
+						*last_dir = 0;
 				// FPGA side will be informed about the mount and perform a reset
 				// if configured to do so
-				cdi_mount_save(last_dir);
+					cdi_mount_save(last_dir);
+				}
 			}
 
 			prepare_toc_buffer(&toc);
@@ -1154,10 +1241,13 @@ void cdi_mount_cd(int s_index, const char* filename)
 	if (!loaded)
 	{
 		printf("Unmount CD\n");
+		if (toc.phys) physical_disc_close();
 		unload_cue(&toc);
 		unload_chd(&toc);
 		mount_cd(0, s_index);
 	}
+
+	return loaded;
 }
 
 void cdi_poll() {}
