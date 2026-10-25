@@ -22,6 +22,7 @@
 #include "../cdi/cdi.h"
 #include "physical_disc.h"
 #include "physical_disc_launch.h"
+#include "../../phosphor_disc.h"
 #include "physical_disc_acoustic.h"
 
 #ifdef HAS_RCHEEVOS
@@ -541,6 +542,7 @@ void physical_disc_launch_resume_menu_discovery(void)
 int physical_disc_launch_menu_tick(void)
 {
 	if (!is_menu()) return 0;
+	if (phosphor_disc_busy()) return 0;   // Phosphor: its own read of a new disc has the drive (phosphor_disc.cpp)
 	if (menu_discovery_suspended) return 0;
 
 	// Auto Disc Discovery is optional. When disabled, do not touch the
