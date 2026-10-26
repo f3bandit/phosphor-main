@@ -145,36 +145,30 @@ int main() {
 		close(f); got(f);
 		g_menu = 1; strcpy(g_core, "MENU");
 	}
-	/* screenshots: Down held + Start in a game; Start held back (press and release) */
+	/* screenshots: both sticks in (L3 + R3) */
 	{
 		int sv = g_menu; g_menu = 0;
-		const char *nm[] = { "A", "B", "Select", "Start" };
-		for (int k = 0; k < 4; k++) snprintf(joy_bnames[k], 32, "%s", nm[k]);
-		joy_bcount = 4;
-		uint32_t start = 1u << 7;
 		int s0 = g_shots;
-		CHECK(phosphor_combo(0, start, 1) == 0 && phosphor_combo(0, start, 0) == 0 && g_shots == s0, "Start alone goes to the game");
-		phosphor_combo(0, 0x4, 1);
-		CHECK(phosphor_combo(0, start, 1) == 1 && g_shots == s0 + 1, "Down + Start: a screenshot, Start held back");
-		CHECK(phosphor_combo(0, start, 0) == 1, "...and its release too");
-		phosphor_combo(0, 0x4, 0);
-		CHECK(phosphor_combo(0, start, 1) == 0, "Down let go: Start goes to the game again");
-		phosphor_combo(0, start, 0);
-		snprintf(joy_bnames[3], 32, "Run");
-		phosphor_combo(1, 0x4, 1);
-		CHECK(phosphor_combo(1, start, 1) == 1, "PC Engine's Run counts as Start");
-		phosphor_combo(1, start, 0); phosphor_combo(1, 0x4, 0);
+		phosphor_thumbs(3, 0, 1);
+		CHECK(g_shots == s0, "one stick in: nothing");
+		phosphor_thumbs(3, 1, 1);
+		CHECK(g_shots == s0 + 1, "both sticks in, in a game: a screenshot");
+		phosphor_thumbs(3, 1, 0); phosphor_thumbs(3, 1, 1);
+		CHECK(g_shots == s0 + 2, "again: another");
+		phosphor_thumbs(3, 0, 0); phosphor_thumbs(3, 1, 0);
+		phosphor_thumbs(4, 0, 1); phosphor_thumbs(5, 1, 1);
+		CHECK(g_shots == s0 + 2, "two controllers, one stick each: nothing");
+		phosphor_thumbs(4, 0, 0); phosphor_thumbs(5, 1, 0);
 		int c = conn();
 		say(c, "shot off"); got(c);
-		phosphor_combo(0, 0x4, 1);
-		CHECK(phosphor_combo(0, start, 1) == 0, "shot off: the combo does nothing");
-		phosphor_combo(0, start, 0); phosphor_combo(0, 0x4, 0);
+		phosphor_thumbs(3, 0, 1); phosphor_thumbs(3, 1, 1);
+		CHECK(g_shots == s0 + 2, "shot off: the combo does nothing");
+		phosphor_thumbs(3, 0, 0); phosphor_thumbs(3, 1, 0);
 		say(c, "shot on"); got(c);
-		say(c, "screenshot"); CHECK(strstr(got(c), "\"ok\":true"), "screenshot in a game");
+		say(c, "screenshot"); CHECK(strstr(got(c), "\"ok\":true") && g_shots == s0 + 3, "screenshot in a game");
 		phosphor_screenshot_result(NULL, 1);
 		g_menu = 1;
 		say(c, "screenshot"); CHECK(strstr(got(c), "no game"), "screenshot in the menu: no");
-		joy_bcount = 0;
 		g_menu = sv;
 	}
 	printf("ALL PASSED\n");
