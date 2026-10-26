@@ -601,12 +601,14 @@ void phosphor_thumbs(int dev, int right, int press)
 	uint8_t was = thumbs[dev], bit = right ? 2 : 1;
 	thumbs[dev] = press ? (was | bit) : (was & ~bit);
 	if (!press || thumbs[dev] != 3 || was == 3 || !shot_on || user_io_osd_is_visible()) return;
-	if (!is_menu())
+	// Phosphor's picture on the screen (its menus, or its in-game menu over a game): the shell saves
+	// that; MiSTer's capture would only see the game's video, which isn't what's shown
+	if (owner >= 0 && video_fb_state()) event_all("{\"event\":\"shot\"}");
+	else if (!is_menu())
 	{
 		shot_ours = 1;
 		request_screenshot(NULL, 1);
 	}
-	else if (owner >= 0 && video_fb_state()) event_all("{\"event\":\"shot\"}");     // the shell's screen
 }
 
 int phosphor_screenshot_result(const char *file, int ok)
