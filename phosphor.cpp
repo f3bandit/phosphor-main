@@ -61,6 +61,7 @@
 // functions, from Main's UI loop.
 #include "phosphor.h"
 #include "phosphor_disc.h"
+#include "scaler.h"
 #include "achievements.h"
 #include "menu.h"
 #include "user_io.h"
@@ -586,6 +587,51 @@ static void drop(int i)
 	if (script_client == i) script_client = -1;   // (the script carries on; nobody to tell)
 }
 
+// ---------- screenshots: D-pad Down held, then Start, while a game runs ("shot on|off"; on unless the
+// shell says otherwise). MiSTer's own screenshot (screenshots/<core>/ on the SD card); the Start press
+// that makes it is held back from the game, and its release too. The core's Start is the button its
+// config names Start (PC Engine: Run).
+static int shot_on = 1;
+static int shot_ours;                       // the screenshot in progress was the combo's (or the apps')
+static uint32_t shot_down[8];               // per player: Down held
+static uint8_t shot_eaten[8];               // per player: a Start press held back, so its release is too
+
+static uint32_t core_start_bit(void)
+{
+	for (int i = 0; i < joy_bcount && i < 28; i++)
+	{
+		const char *n = joy_bnames[i];
+		if (!strncasecmp(n, "start", 5) || !strcasecmp(n, "run")) return 1u << (4 + i);
+	}
+	return 0;
+}
+
+int phosphor_combo(int player, uint32_t mask, int press)
+{
+	if (player < 0 || player >= 8 || is_menu()) return 0;
+	if (mask == JOY_DOWN) { shot_down[player] = press ? 1 : 0; return 0; }
+	uint32_t sb = core_start_bit();
+	if (!sb || mask != sb) return 0;
+	if (!press) { if (shot_eaten[player]) { shot_eaten[player] = 0; return 1; } return 0; }
+	if (!shot_on || !shot_down[player]) return 0;
+	shot_eaten[player] = 1;
+	shot_ours = 1;
+	request_screenshot(NULL, 1);
+	return 1;
+}
+
+int phosphor_screenshot_result(const char *file, int ok)
+{
+	if (!shot_ours) return 0;
+	shot_ours = 0;
+	char ev[1400], f[1200];
+	json_str(f, sizeof(f), file ? file : "");
+	snprintf(ev, sizeof(ev), "{\"event\":\"screenshot\",\"ok\":%s,\"file\":\"%s\"}", ok ? "true" : "false", f);
+	event_all(ev);
+	Info(ok ? "Screenshot saved" : "Screenshot failed");
+	return 1;
+}
+
 // the file loaded into the running core (Main restarts with each core, so this is always this core's)
 static char cur_file[1024];
 void phosphor_file_loaded(const char *path)
@@ -663,6 +709,16 @@ static void command(int i, char *line)
 	{
 		if (ingame_client == i) { ingame_client = -1; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
 		send_line(i, "{\"ok\":true}");
+	}
+	else if (!strcmp(line, "shot on") || !strcmp(line, "shot off"))
+	{
+		shot_on = !strcmp(line, "shot on");
+		send_line(i, "{\"ok\":true}");
+	}
+	else if (!strcmp(line, "screenshot"))              // the apps' "take a screenshot" while a game runs
+	{
+		if (is_menu()) send_line(i, "{\"ok\":false,\"error\":\"no game is running\"}");
+		else { shot_ours = 1; request_screenshot(NULL, 1); send_line(i, "{\"ok\":true}"); }
 	}
 	else if (!strncmp(line, "disc", 4) && (!line[4] || line[4] == ' ') && phosphor_disc_command(line, out, sizeof(out)))
 		send_line(i, out);

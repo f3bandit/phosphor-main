@@ -26,6 +26,7 @@ const int VEC_WIDTH = 16;
 #include "cfg.h"
 #include "offload.h"
 #include "scaler.h"
+#include "phosphor.h"
 #include "lib/imlib2/Imlib2.h"
 #include "shmem.h"
 #include "file_io.h"
@@ -656,18 +657,18 @@ void screenshot_cb(void)
                     snprintf(msg, sizeof(msg), "Screen saved to\n%s",
                             result_data->filename + strlen(SCREENSHOT_DIR "/"));
                     printf("%s\n", msg);
-                    if (cfg.screenshot_info) Info(msg);
+                    if (!phosphor_screenshot_result(result_data->filename, 1) && cfg.screenshot_info) Info(msg);
                 }
                 else
                 {
                     printf("Screenshot saved\n");
-                    if (cfg.screenshot_info) Info("Screenshot saved");
+                    if (!phosphor_screenshot_result(NULL, 1) && cfg.screenshot_info) Info("Screenshot saved");
                 }
                 break;
 
             case SCREENSHOT_FAILURE:
                 printf("Screenshot failed\n");
-                Info("Screenshot failed");
+                if (!phosphor_screenshot_result(NULL, 0)) Info("Screenshot failed");
                 break;
 
             default:
