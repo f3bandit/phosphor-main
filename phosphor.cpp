@@ -587,37 +587,26 @@ static void drop(int i)
 	if (script_client == i) script_client = -1;   // (the script carries on; nobody to tell)
 }
 
-// ---------- screenshots: D-pad Down held, then Start, while a game runs ("shot on|off"; on unless the
-// shell says otherwise). MiSTer's own screenshot (screenshots/<core>/ on the SD card); the Start press
-// that makes it is held back from the game, and its release too. The core's Start is the button its
-// config names Start (PC Engine: Run).
+// ---------- screenshots: both sticks pressed in (L3 + R3) on a controller ("shot on|off"; on unless the
+// shell says otherwise). In a game MiSTer's own screenshot (screenshots/<core>/ on the SD card); on
+// Phosphor's screens the shell takes it (event {"event":"shot"}). The presses still reach the core:
+// games hardly ever need both sticks in at once.
 static int shot_on = 1;
 static int shot_ours;                       // the screenshot in progress was the combo's (or the apps')
-static uint32_t shot_down[8];               // per player: Down held
-static uint8_t shot_eaten[8];               // per player: a Start press held back, so its release is too
+static uint8_t thumbs[64];                  // per device: bit 0 left stick in, bit 1 right stick in
 
-static uint32_t core_start_bit(void)
+void phosphor_thumbs(int dev, int right, int press)
 {
-	for (int i = 0; i < joy_bcount && i < 28; i++)
+	if (dev < 0 || dev >= 64) return;
+	uint8_t was = thumbs[dev], bit = right ? 2 : 1;
+	thumbs[dev] = press ? (was | bit) : (was & ~bit);
+	if (!press || thumbs[dev] != 3 || was == 3 || !shot_on || user_io_osd_is_visible()) return;
+	if (!is_menu())
 	{
-		const char *n = joy_bnames[i];
-		if (!strncasecmp(n, "start", 5) || !strcasecmp(n, "run")) return 1u << (4 + i);
+		shot_ours = 1;
+		request_screenshot(NULL, 1);
 	}
-	return 0;
-}
-
-int phosphor_combo(int player, uint32_t mask, int press)
-{
-	if (player < 0 || player >= 8 || is_menu()) return 0;
-	if (mask == JOY_DOWN) { shot_down[player] = press ? 1 : 0; return 0; }
-	uint32_t sb = core_start_bit();
-	if (!sb || mask != sb) return 0;
-	if (!press) { if (shot_eaten[player]) { shot_eaten[player] = 0; return 1; } return 0; }
-	if (!shot_on || !shot_down[player]) return 0;
-	shot_eaten[player] = 1;
-	shot_ours = 1;
-	request_screenshot(NULL, 1);
-	return 1;
+	else if (owner >= 0 && video_fb_state()) event_all("{\"event\":\"shot\"}");     // the shell's screen
 }
 
 int phosphor_screenshot_result(const char *file, int ok)

@@ -2425,9 +2425,6 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 	if (num < NUMPLAYERS)
 	{
 		// autofire handler moved to helper function for clarity
-		// Phosphor: D-pad Down held + Start in a game takes a screenshot (the Start press is held back)
-		if (!user_io_osd_is_visible() && bnum != BTN_OSD && phosphor_combo(num, mask, press)) return;
-
 		if (handle_autofire_toggle(num, mask, code, press, bnum, dont_save)) {
 			return;
 		}
@@ -3016,6 +3013,10 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 	if (ev->type == EV_KEY)
 	{
 		if (input[dev].timeout > 0) input[dev].timeout = cfg.bt_auto_disconnect * 10;
+
+		// Phosphor: both sticks pressed in (L3 + R3) takes a screenshot; the presses still go on as usual
+		if ((ev->code == BTN_THUMBL || ev->code == BTN_THUMBR) && ev->value <= 1)
+			phosphor_thumbs(dev, ev->code == BTN_THUMBR, ev->value);
 
 		//mouse
 		//if the lightgun mouse quirk is set then don't pass these button presses to the mouse system
