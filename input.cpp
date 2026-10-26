@@ -2425,6 +2425,9 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 	if (num < NUMPLAYERS)
 	{
 		// autofire handler moved to helper function for clarity
+		// Phosphor: D-pad Down held + Start in a game takes a screenshot (the Start press is held back)
+		if (!user_io_osd_is_visible() && bnum != BTN_OSD && phosphor_combo(num, mask, press)) return;
+
 		if (handle_autofire_toggle(num, mask, code, press, bnum, dont_save)) {
 			return;
 		}

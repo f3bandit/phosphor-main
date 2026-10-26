@@ -12,6 +12,7 @@
 #define UPSTROKE 0x400000
 #define KEY_F12 88
 #define KEY_UP 103
+extern int g_shots; extern char joy_bnames[32][32]; extern int joy_bcount;
 extern int g_menu, g_osd, g_fb, g_screen_req; extern char g_core[64], g_loaded[512];
 extern int g_vt, g_fbcon; extern int g_ext, g_card_present, g_card_busy_polls, g_pad_cmds[8], g_pad_ncmd; extern uint16_t g_ext_mode; extern uint8_t g_card[];
 static int conn() { int s = socket(AF_UNIX, SOCK_STREAM, 0); struct sockaddr_un a = {}; a.sun_family = AF_UNIX; strcpy(a.sun_path, getenv("PHOSPHOR_MAIN_SOCK")); assert(!connect(s, (struct sockaddr *)&a, sizeof a)); fcntl(s, F_SETFL, O_NONBLOCK); return s; }
@@ -143,6 +144,38 @@ int main() {
 		CHECK(strstr(got(f), "\"event\":\"ingame\",\"on\":false"), "Main took the screen back: told");
 		close(f); got(f);
 		g_menu = 1; strcpy(g_core, "MENU");
+	}
+	/* screenshots: Down held + Start in a game; Start held back (press and release) */
+	{
+		int sv = g_menu; g_menu = 0;
+		const char *nm[] = { "A", "B", "Select", "Start" };
+		for (int k = 0; k < 4; k++) snprintf(joy_bnames[k], 32, "%s", nm[k]);
+		joy_bcount = 4;
+		uint32_t start = 1u << 7;
+		int s0 = g_shots;
+		CHECK(phosphor_combo(0, start, 1) == 0 && phosphor_combo(0, start, 0) == 0 && g_shots == s0, "Start alone goes to the game");
+		phosphor_combo(0, 0x4, 1);
+		CHECK(phosphor_combo(0, start, 1) == 1 && g_shots == s0 + 1, "Down + Start: a screenshot, Start held back");
+		CHECK(phosphor_combo(0, start, 0) == 1, "...and its release too");
+		phosphor_combo(0, 0x4, 0);
+		CHECK(phosphor_combo(0, start, 1) == 0, "Down let go: Start goes to the game again");
+		phosphor_combo(0, start, 0);
+		snprintf(joy_bnames[3], 32, "Run");
+		phosphor_combo(1, 0x4, 1);
+		CHECK(phosphor_combo(1, start, 1) == 1, "PC Engine's Run counts as Start");
+		phosphor_combo(1, start, 0); phosphor_combo(1, 0x4, 0);
+		int c = conn();
+		say(c, "shot off"); got(c);
+		phosphor_combo(0, 0x4, 1);
+		CHECK(phosphor_combo(0, start, 1) == 0, "shot off: the combo does nothing");
+		phosphor_combo(0, start, 0); phosphor_combo(0, 0x4, 0);
+		say(c, "shot on"); got(c);
+		say(c, "screenshot"); CHECK(strstr(got(c), "\"ok\":true"), "screenshot in a game");
+		phosphor_screenshot_result(NULL, 1);
+		g_menu = 1;
+		say(c, "screenshot"); CHECK(strstr(got(c), "no game"), "screenshot in the menu: no");
+		joy_bcount = 0;
+		g_menu = sv;
 	}
 	printf("ALL PASSED\n");
 }
