@@ -168,6 +168,12 @@ struct patch_data {
 static uint8_t loaded = 0;
 static char current_rom_path[1024] = { '\0' };
 static char current_rom_path_gb[1024] = { '\0' };
+static char rom_md5_hex[MD5_LENGTH * 2 + 1] = { '\0' };
+
+const char* n64_get_rom_md5() {
+	return rom_md5_hex;
+}
+
 static char current_dd_disk_path[1024] = { '\0' };
 static char current_dd_ram_save_path[1024] = { '\0' };
 static uint32_t current_dd_load_addr = 0;
@@ -2787,6 +2793,7 @@ int n64_rom_tx(const char* name, const unsigned char idx, const uint32_t load_ad
 	user_io_set_index(idx);
 
 	loaded = 0;
+	rom_md5_hex[0] = '\0';
 
 	if (rdram_ptr && rdram_ptr != (void*)-1) {
 		shmem_unmap(rdram_ptr, RAM_SIZE);
@@ -2916,6 +2923,12 @@ int n64_rom_tx(const char* name, const unsigned char idx, const uint32_t load_ad
 	MD5Final(md5, &ctx);
 	md5_to_hex(md5, md5_hex);
 	printf("File MD5: %s\n", md5_hex);
+
+	// Keep the full-file MD5 (big-endian normalized) for RetroAchievements:
+	// it matches rc_hash_n64, so the RA code can identify the game without
+	// re-reading the ROM (a second read of a zipped ROM stalls the main loop
+	// for seconds right after the save images were mounted).
+	strcpy(rom_md5_hex, md5_hex);
 
 	// Try to detect ROM settings from full file MD5 if they're are not detected yet
 	if (!rom_settings_detected) {

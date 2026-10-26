@@ -6,6 +6,11 @@
 > Physical disc support (the SuperStation dock's CD/DVD drive) is merged from
 > [Main_MiSTer_Physical_Disc](https://github.com/Anime0t4ku/Main_MiSTer_Physical_Disc) by **Anime0t4ku** and **bonna79**
 > (GPL-3.0): see [PHOSPHOR.md](PHOSPHOR.md#physical-discs).
+>
+> RetroAchievements support is merged from [Main_MiSTer (RetroAchievements fork)](https://github.com/odelot/Main_MiSTer)
+> by **odelot** (GPL-3.0), built on [rcheevos](https://github.com/RetroAchievements/rcheevos) by the RetroAchievements team
+> (MIT): see [PHOSPHOR.md](PHOSPHOR.md#retroachievements) and odelot's own README, kept as
+> [RETROACHIEVEMENTS.md](RETROACHIEVEMENTS.md).
 
 # Main_MiSTer Main Binary and Wiki Repo
 

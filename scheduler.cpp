@@ -9,6 +9,7 @@
 #include "fpga_io.h"
 #include "osd.h"
 #include "profiling.h"
+#include "achievements.h"
 #include "video.h"
 #include "support/physical_disc/physical_disc_launch.h"
 
@@ -33,10 +34,11 @@ static void scheduler_co_poll(void)
 
 		{
 			SPIKE_SCOPE("co_poll", 1000);
-			user_io_poll();
-			frame_timer();
-			input_poll(0);
-			video_poll();
+			{ RaProbeScope p(RA_PROBE_UIO);   user_io_poll(); }
+			{ RaProbeScope p(RA_PROBE_FRAME); frame_timer(); }
+			{ RaProbeScope p(RA_PROBE_INPUT); input_poll(0); }
+			achievements_poll();
+			{ RaProbeScope p(RA_PROBE_VIDEO); video_poll(); }
 			physical_disc_launch_poll();
 		}
 
@@ -50,6 +52,7 @@ static void scheduler_co_ui(void)
 	{
 		{
 			SPIKE_SCOPE("co_ui", 1000);
+			RaProbeScope p(RA_PROBE_UI);
 			HandleUI();
 			OsdUpdate();
 			phosphor_poll();                   // Phosphor: local API (phosphor.cpp)
