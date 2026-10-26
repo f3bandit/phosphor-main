@@ -14,7 +14,7 @@
 #define KEY_F12 88
 #define KEY_UP 103
 extern int g_shots; extern char joy_bnames[32][32]; extern int joy_bcount;
-extern int g_menu, g_osd, g_fb, g_screen_req; extern char g_core[64], g_loaded[512];
+extern int g_menu, g_osd, g_fb, g_screen_req; extern unsigned int g_menu_key; extern char g_core[64], g_loaded[512];
 extern int g_vt, g_fbcon; extern int g_ext, g_card_present, g_card_busy_polls, g_pad_cmds[8], g_pad_ncmd; extern uint16_t g_ext_mode; extern uint8_t g_card[];
 static int conn() { int s = socket(AF_UNIX, SOCK_STREAM, 0); struct sockaddr_un a = {}; a.sun_family = AF_UNIX; strcpy(a.sun_path, getenv("PHOSPHOR_MAIN_SOCK")); assert(!connect(s, (struct sockaddr *)&a, sizeof a)); fcntl(s, F_SETFL, O_NONBLOCK); return s; }
 static void say(int s, const char *l) { char b[600]; snprintf(b, sizeof b, "%s\n", l); write(s, b, strlen(b)); }
@@ -150,7 +150,11 @@ int main() {
 		say(f, "sheet on"); got(f);
 		say(f, "ingame on"); got(f);
 		say(f, "ingame osd"); CHECK(strstr(got(f), "\"ok\":true"), "ingame osd");
-		CHECK(phosphor_filter_key(KEY_F12) == KEY_F12, "ingame osd: Main's own menu key opens the OSD at once (not held for a short press)");
+		CHECK(g_menu_key == KEY_F12, "ingame osd: Main presses its menu key");
+		CHECK(phosphor_filter_key(KEY_F12) == KEY_F12, "ingame osd: that press goes through (not held for a short press)");
+		usleep(100000); phosphor_poll();
+		CHECK(g_menu_key == (KEY_F12 | UPSTROKE), "ingame osd: and releases it a moment later (the OSD opens on the release)");
+		CHECK(phosphor_filter_key(KEY_F12 | UPSTROKE) == (KEY_F12 | UPSTROKE), "ingame osd: the release goes through: the OSD opens");
 		CHECK(phosphor_filter_key(KEY_F12) == 0, "and the next menu button is a short press for the sheet again");
 		phosphor_filter_key(KEY_F12 | UPSTROKE); got(f);
 		say(f, "sheet off"); got(f);

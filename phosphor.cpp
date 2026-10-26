@@ -110,7 +110,8 @@ static unsigned long rep_next;
 static char last_core[64];
 static int last_osd = -1;
 static unsigned long f12_down;   // when the menu button went down (sheet), 0: not held
-static int osd_direct;             // the next menu key is Main's own, from "ingame osd": the OSD at once
+static int osd_direct;             // Main's own menu key press and release, from "ingame osd": straight through
+static unsigned long osd_release;  // when to send that release (MiSTer's menu opens the OSD on the release)
 static int inited;
 static unsigned long hold_until;   // Main's file browser waits for the shell until then (0: no wait)
 
@@ -697,7 +698,9 @@ static void command(int i, char *line)
 	{
 		// from Phosphor's in-game menu to MiSTer's own (the core's options): Phosphor's screen off, the OSD open
 		if (ingame_client == i) { ingame_client = -1; rep_mask = 0; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
-		if (!is_menu() && !user_io_osd_is_visible()) { osd_direct = 1; f12_down = 0; menu_key_set(KEY_F12); }
+		// a press and, a moment later, its release: MiSTer's menu opens the OSD on the release, and it only
+		// sees a key that changed (its 20 ms debounce), so both can't be set at once
+		if (!is_menu() && !user_io_osd_is_visible()) { osd_direct = 1; f12_down = 0; menu_key_set(KEY_F12); osd_release = GetTimer(60); }
 		send_line(i, "{\"ok\":true}");
 	}
 	else if (!strcmp(line, "ingame off"))
@@ -845,6 +848,7 @@ int phosphor_pad(uint32_t mask, int press)
 
 void phosphor_poll(void)
 {
+	if (osd_release && CheckTimer(osd_release)) { osd_release = 0; menu_key_set(KEY_F12 | UPSTROKE); }   // "ingame osd"
 	static int started;
 	if (!started) { started = 1; busy_init(); }
 	if (rep_mask && CheckTimer(rep_next))
@@ -993,7 +997,7 @@ uint32_t phosphor_filter_key(uint32_t c)
 	uint32_t key = c & ~UPSTROKE;
 	// the menu key Main sends itself for "ingame osd": straight to the OSD (not a short press for the
 	// in-game menu, which would wait for a release that never comes)
-	if (osd_direct && key == KEY_F12) { osd_direct = 0; return c; }
+	if (osd_direct && key == KEY_F12) { if (c & UPSTROKE) osd_direct = 0; return c; }
 
 	// MiSTer's own menu, after Phosphor gave it the screen: holding the menu button 2 s goes back to Phosphor
 	static unsigned long menu_down;
