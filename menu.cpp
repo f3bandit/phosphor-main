@@ -61,6 +61,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "game_docs.h"
 #include "video.h"
 #include "audio.h"
+#include "achievements.h"
 #include "joymapping.h"
 #include "recent.h"
 #include "support.h"
@@ -142,6 +143,11 @@ enum MENU
 
 	MENU_CHEATS1,
 	MENU_CHEATS2,
+
+	MENU_RA_ACHIEVEMENTS1,
+	MENU_RA_ACHIEVEMENTS2,
+	MENU_RA_ACH_DETAIL1,
+	MENU_RA_ACH_DETAIL2,
 
 	MENU_UART1,
 	MENU_UART2,
@@ -1222,6 +1228,9 @@ void HandleUI(void)
 	static int flash_state = 0;
 	static uint32_t dip_submenu;
 	static uint32_t manual_submenu;
+	static uint32_t ra_submenu;              // generic-menu row of the "Achievements" entry (-1 when absent)
+	static int ra_list_ret = MENU_NONE1;     // menustate to return to when the achievement list/detail closes
+	static uint32_t ra_list_ret_sub = 0;     // menusub to restore on that return
 	static int need_reset = 0;
 	static int flat = 0;
 	static int menusub_parent = 0;
@@ -1474,6 +1483,23 @@ void HandleUI(void)
 				user_io_status_set("[3:1]", user_io_status_get("[3:1]") + 1);
 				user_io_status_save(user_io_create_config_name());
 				video_menu_bg(user_io_status_get("[3:1]"));
+			}
+			break;
+
+		case KEY_F6:
+			if (achievements_has_active_game())
+			{
+				int ach_count = achievements_list_open();
+				if (ach_count > 0)
+				{
+					ra_list_ret = MENU_NONE1;   // F6/in-game shortcut closes back to the game
+					ra_list_ret_sub = 0;
+					OsdSetSize(16);
+					menusub = 0;
+					OsdClear();
+					OsdEnable(DISABLE_KEYBOARD);
+					menustate = MENU_RA_ACHIEVEMENTS1;
+				}
 			}
 			break;
 
@@ -2038,6 +2064,7 @@ void HandleUI(void)
 
 			dip_submenu = -1;
 			manual_submenu = -1;
+			ra_submenu = -1;
 
 			int last_space = 0;
 
@@ -2323,6 +2350,17 @@ void HandleUI(void)
 				}
 			} while (p);
 
+			// RetroAchievements list entry, appended after the core's own options
+			// (main page only) so it never shifts the confstr-derived indices.
+			if (!page && achievements_has_active_game())
+			{
+				ra_submenu = selentry;
+				MenuWrite(entry, " Achievements", menusub == selentry, 0);
+				menumask = (menumask << 1) | 1;
+				entry++;
+				selentry++;
+			}
+
 			if (!entry) break;
 
 			for (; entry < OsdGetSize() - 1; entry++) MenuWrite(entry, "", 0, 0);
@@ -2435,6 +2473,21 @@ void HandleUI(void)
 				page = 0;
 			}
 		}
+		else if (c == KEY_TAB && achievements_has_active_game())
+		{
+			// Quick shortcut: Y (mapped to TAB in the OSD) opens the list.
+			int ach_count = achievements_list_open();
+			if (ach_count > 0)
+			{
+				ra_list_ret = MENU_GENERIC_MAIN1;
+				ra_list_ret_sub = menusub;
+				OsdSetSize(16);
+				menusub = 0;
+				OsdClear();
+				OsdEnable(DISABLE_KEYBOARD);
+				menustate = MENU_RA_ACHIEVEMENTS1;
+			}
+		}
 		else if (select || recent || minus || plus || !mgl->done)
 		{
 			if (!mgl->done)
@@ -2443,7 +2496,22 @@ void HandleUI(void)
 				select = 1;
 			}
 
-			if (manual_submenu == menusub)
+			if (ra_submenu == menusub && select)
+			{
+				// "Achievements" menu entry: open the list view.
+				int ach_count = achievements_list_open();
+				if (ach_count > 0)
+				{
+					ra_list_ret = MENU_GENERIC_MAIN1;
+					ra_list_ret_sub = menusub;
+					OsdSetSize(16);
+					menusub = 0;
+					OsdClear();
+					OsdEnable(DISABLE_KEYBOARD);
+					menustate = MENU_RA_ACHIEVEMENTS1;
+				}
+			}
+			else if (manual_submenu == menusub)
 			{
 				if (select)
 				{
@@ -2718,7 +2786,6 @@ void HandleUI(void)
 											opt = "[0]";
 										}
 									}
-
 									if (is_pce() && !bit) pcecd_reset();
 									if (is_saturn() && !bit) saturn_reset();
 									if (is_n64() && !bit) n64_reset();
@@ -2732,6 +2799,40 @@ void HandleUI(void)
 									user_io_status_set(opt, 1, ex);
 									if (is_n64() && !ex && !strcmp(opt, "[41]")) n64_save_dd_disk();
 									user_io_status_set(opt, 0, ex);
+
+									// Notify RA only after the reset pulse: notifying before it
+									// leaves a window where an in-flight FPGA VBlank scan rewrites
+									// the response header after the ARM already cleared the mirror.
+									//
+									// SMS "Eject ROM" is status[9], which the plain !bit test
+									// above cannot see. It feeds raw_reset and drops the cartridge,
+									// leaving the core running with nothing loaded -- and this core
+									// does not pause for the OSD, so triggers that stay armed get
+									// evaluated against the garbage a cartridge-less Z80 writes into
+									// RAM (that is how both of Dragon Wang's score achievements
+									// unlocked on eject). End the session outright.
+									//
+									// SMS "Soft Reset" (status[11] and the joypad button) is NOT a
+									// reset and must not be reported as one: io.vhd drives it onto
+									// port $DD bit 4 as a plain readable input, exactly like real
+									// hardware and Genesis Plus GX. The Z80 keeps running and RAM is
+									// untouched; if the game restarts it is the game's own code
+									// doing it, which is what the reference emulator shows rcheevos.
+									//
+									// A savestate restore is neither of those. Only SMS ([62]) and
+									// SNES ([48]) expose one in the OSD today, on different bits and
+									// with different spelling, so match the conf-string label rather
+									// than tabulating bits per core. (F1 and the joypad shortcut are
+									// decoded inside savestate_ui.sv and never reach the ARM, so
+									// those two paths stay uncovered until the RTL reports them.)
+									if (!bit) achievements_notify_core_reset();
+									else if (is_sms() && !ex && bit == 9) achievements_unload_game();
+									else
+									{
+										char lbl[256];
+										substrcpy(lbl, p, 1);
+										if (strcasestr(lbl, "load state")) achievements_notify_state_loaded();
+									}
 
 									menustate = MENU_GENERIC_MAIN1;
 									if (p[0] == 'R' || p[0] == 'r')
@@ -2814,6 +2915,7 @@ void HandleUI(void)
 				{
 					neocd_set_en(0);
 					neogeo_romset_tx(selPath, 0);
+					achievements_load_game(selPath, 0);
 				}
 				else
 				{
@@ -2832,6 +2934,7 @@ void HandleUI(void)
 						{
 							game_docs_init(selPath, n64_crc);
 							if (user_io_use_cheats()) cheats_init(selPath, n64_crc);
+							achievements_load_game(selPath, n64_crc);
 						}
 					}
 					else if (is_c64() || is_c128())
@@ -2877,6 +2980,7 @@ void HandleUI(void)
 						{
 							game_docs_init(selPath, user_io_get_file_crc());
 							if (user_io_use_cheats()) cheats_init(selPath, user_io_get_file_crc());
+							achievements_load_game(selPath, user_io_get_file_crc());
 						}
 					}
 				}
@@ -2937,6 +3041,9 @@ void HandleUI(void)
 			else if (is_megacd())
 			{
 				mcd_set_image(ioctl_index, selPath);
+
+				if (!ioctl_index) achievements_load_game(selPath, 0);
+
 				game_docs_init(selPath, 0);
 			}
 			else if (is_pce())
@@ -2944,12 +3051,14 @@ void HandleUI(void)
 				pcecd_set_image(ioctl_index, selPath);
 				game_docs_init(selPath, 0);
 				cheats_init(selPath, 0);
+				achievements_load_game(selPath, 0);
 			}
 			else if (is_psx() && ioctl_index == 1)
 			{
 				psx_mount_cd(user_io_ext_idx(selPath, fs_pFileExt) << 6 | (menusub + 1), ioctl_index, selPath);
 				game_docs_init(selPath, 0);
 				cheats_init(selPath, 0);
+				achievements_load_game(selPath, 0);
 			}
 			else if (is_cdi())
 			{
@@ -2960,6 +3069,7 @@ void HandleUI(void)
 				if (!ioctl_index)
 				{
 					saturn_set_image(ioctl_index, selPath);
+					achievements_load_game(selPath, 0);
 				} else {
 					saturn_mount_save(selPath);
 				}
@@ -2968,6 +3078,7 @@ void HandleUI(void)
 			{
 				neocd_set_en(1);
 				neocd_set_image(selPath);
+				achievements_load_game(selPath, 0);
 			}
 			else if (is_atari800())
 			{
@@ -5915,8 +6026,117 @@ void HandleUI(void)
 
 		if (select)
 		{
+			if (achievements_hardcore_active()) {
+				Info("Hardcore Mode: cheats disabled", 3000);
+			} else {
 			cheats_toggle();
+			}
 			menustate = MENU_CHEATS1;
+		}
+		break;
+
+		/******************************************************************/
+		/* RetroAchievements list (F6 shortcut)                           */
+		/******************************************************************/
+	case MENU_RA_ACHIEVEMENTS1:
+	{
+		helptext_idx = 0;
+		char ra_title[32];
+		snprintf(ra_title, sizeof(ra_title), "Achievements (%d)", achievements_list_count());
+		OsdSetTitle(ra_title);
+		achievements_list_print();
+		menustate = MENU_RA_ACHIEVEMENTS2;
+		parentstate = menustate;
+		break;
+	}
+
+	case MENU_RA_ACHIEVEMENTS2:
+		menumask = 0;
+
+		achievements_list_ticker(); // animate the description ticker (no-op unless enabled)
+
+		if (menu || back)
+		{
+			achievements_list_close();
+			menustate = ra_list_ret;
+			menusub = ra_list_ret_sub;
+			break;
+		}
+
+		// A (select) or Y (TAB) opens the detail screen of the highlighted item.
+		if ((select || c == KEY_TAB) && achievements_list_selected_is_ach())
+		{
+			menustate = MENU_RA_ACH_DETAIL1;
+			break;
+		}
+
+		if (c == KEY_HOME)
+		{
+			achievements_list_scan(SCANF_INIT);
+			menustate = MENU_RA_ACHIEVEMENTS1;
+		}
+
+		if (c == KEY_END)
+		{
+			achievements_list_scan(SCANF_END);
+			menustate = MENU_RA_ACHIEVEMENTS1;
+		}
+
+		if (c == KEY_PAGEUP)
+		{
+			achievements_list_scan(SCANF_PREV_PAGE);
+			menustate = MENU_RA_ACHIEVEMENTS1;
+		}
+
+		if (c == KEY_PAGEDOWN)
+		{
+			achievements_list_scan(SCANF_NEXT_PAGE);
+			menustate = MENU_RA_ACHIEVEMENTS1;
+		}
+
+		// Multiset games: Left/Right switch between achievement sets.
+		// Single-set games: keep the old page-scroll behavior.
+		if (c == KEY_LEFT)
+		{
+			if (!achievements_list_switch_set(-1)) achievements_list_scan(SCANF_PREV_PAGE);
+			menustate = MENU_RA_ACHIEVEMENTS1;
+		}
+
+		if (c == KEY_RIGHT)
+		{
+			if (!achievements_list_switch_set(1)) achievements_list_scan(SCANF_NEXT_PAGE);
+			menustate = MENU_RA_ACHIEVEMENTS1;
+		}
+
+		if (down)
+		{
+			achievements_list_scan(SCANF_NEXT);
+			menustate = MENU_RA_ACHIEVEMENTS1;
+		}
+
+		if (up)
+		{
+			achievements_list_scan(SCANF_PREV);
+			menustate = MENU_RA_ACHIEVEMENTS1;
+		}
+		break;
+
+		/******************************************************************/
+		/* RetroAchievements detail (description of the selected entry)    */
+		/******************************************************************/
+	case MENU_RA_ACH_DETAIL1:
+		OsdSetTitle("Achievement");
+		achievements_detail_print();
+		menustate = MENU_RA_ACH_DETAIL2;
+		parentstate = menustate;
+		break;
+
+	case MENU_RA_ACH_DETAIL2:
+		menumask = 0;
+		// Back (B) or Menu returns to the list, selection preserved.
+		if (menu || back)
+		{
+			menustate = MENU_RA_ACHIEVEMENTS1;
 		}
 		break;
 
@@ -8826,6 +9046,49 @@ void Info(const char *message, int timeout, int width, int height, int frame)
 	{
 		OSD_PrintInfo(message, &width, &height, frame);
 		InfoEnable(20, (cfg.direct_video && get_vga_fb()) ? 30 : 10, width, height);
+		OsdSetSize(16);
+
+		menu_timer = GetTimer(timeout);
+		menustate = MENU_INFO;
+		OsdUpdate();
+	}
+}
+
+// Horizontal span the core uses for the info window: sys/osd.v samples the
+// active line in 512 steps, so the x passed to InfoEnable() runs 0..511 while
+// the window itself is <width> characters * 8 steps wide. Left and right keep
+// the same margin the classic top-left popup has always used.
+#define INFO_SPAN   512
+#define INFO_MARGIN 20
+
+void InfoAligned(const char *message, int timeout, int align, int frame)
+{
+	if (menustate <= MENU_INFO)
+	{
+		int width = 0, height = 0;
+		OSD_PrintInfo(message, &width, &height, frame);
+
+		int x = INFO_MARGIN;
+		if (align == INFO_ALIGN_CENTER) x = (INFO_SPAN - (width * 8)) / 2;
+		else if (align == INFO_ALIGN_RIGHT) x = INFO_SPAN - (width * 8) - INFO_MARGIN;
+		if (x < 0) x = 0;
+
+		InfoEnable(x, (cfg.direct_video && get_vga_fb()) ? 30 : 10, width, height);
+		OsdSetSize(16);
+
+		menu_timer = GetTimer(timeout);
+		menustate = MENU_INFO;
+		OsdUpdate();
+	}
+}
+
+void InfoAt(const char *message, int timeout, int y_pos, int frame)
+{
+	if (menustate <= MENU_INFO)
+	{
+		int width = 0, height = 0;
+		OSD_PrintInfo(message, &width, &height, frame);
+		InfoEnable(20, y_pos, width, height);
 		OsdSetSize(16);
 
 		menu_timer = GetTimer(timeout);

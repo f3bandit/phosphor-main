@@ -61,6 +61,7 @@
 // functions, from Main's UI loop.
 #include "phosphor.h"
 #include "phosphor_disc.h"
+#include "achievements.h"
 #include "menu.h"
 #include "user_io.h"
 #include "video.h"
@@ -139,9 +140,11 @@ static const char *sock_path(void)
 	return p && *p ? p : PH_SOCK;
 }
 
+static void event_all(const char *s);
 static void ph_init(void)
 {
 	inited = 1;
+	achievements_phosphor_events(event_all);      // RetroAchievements: login and unlock events
 	if (phosphor_installed()) hold_until = GetTimer(60000);
 	for (int i = 0; i < PH_MAX; i++) cl[i].fd = -1;
 	unlink(sock_path());
@@ -597,7 +600,7 @@ static void command(int i, char *line)
 	char out[512];
 	while (*line == ' ') line++;
 	if (!strcmp(line, "hello"))
-		send_line(i, "{\"ok\":true,\"api\":5,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true,\"mapping\":true,\"disc\":true,\"ingame\":true}");   // api 3: scripts, 4: mapping, 5: disc, ingame
+		send_line(i, "{\"ok\":true,\"api\":6,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true,\"mapping\":true,\"disc\":true,\"ingame\":true,\"ra\":true}");   // api 3: scripts, 4: mapping, 5: disc, ingame, 6: ra
 	else if (!strncmp(line, "script ", 7)) script_start(i, line + 7);
 	else if (!strcmp(line, "status"))
 	{
@@ -654,6 +657,18 @@ static void command(int i, char *line)
 	}
 	else if (!strncmp(line, "disc", 4) && (!line[4] || line[4] == ' ') && phosphor_disc_command(line, out, sizeof(out)))
 		send_line(i, out);
+	else if (!strcmp(line, "ra"))
+	{
+		char st[1200];
+		achievements_phosphor_status(st, sizeof(st));
+		send_line(i, st);
+	}
+	else if (!strcmp(line, "ra list"))
+	{
+		char *l = achievements_phosphor_list();
+		send_line(i, l ? l : "{\"ok\":false,\"error\":\"out of memory\"}");
+		free(l);
+	}
 	else if (!strcmp(line, "sheet off")) { if (sheet_client == i) sheet_client = -1; send_line(i, "{\"ok\":true}"); }
 	else if (!strncmp(line, "launch ", 7))
 	{

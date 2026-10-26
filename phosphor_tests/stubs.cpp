@@ -105,3 +105,7 @@ int phosphor_disc_command(const char *line, char *out, size_t n)
 	return 0;
 }
 void phosphor_disc_poll(void (*)(const char *)) {}
+// RetroAchievements (achievements.cpp needs a running RA core: tested on the SuperStation)
+void achievements_phosphor_events(void (*)(const char *)) {}
+void achievements_phosphor_status(char *out, size_t n) { snprintf(out, n, "{\"ok\":true,\"active\":false,\"logged_in\":false,\"game\":0}"); }
+char *achievements_phosphor_list(void) { return strdup("{\"ok\":true,\"achievements\":[]}"); }

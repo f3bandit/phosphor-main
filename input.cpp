@@ -23,6 +23,7 @@
 #include "autofire.h"
 #include "user_io.h"
 #include "menu.h"
+#include "achievements.h"
 #include "hardware.h"
 #include "cfg.h"
 #include "fpga_io.h"
@@ -2324,6 +2325,12 @@ static bool handle_autofire_toggle(int num, uint32_t mask, uint32_t code, char p
 
 static uint32_t osdbtn = 0;
 
+// In-game RA list shortcut (retroachievements.cfg: list_hotkey): per-device
+// tracking of the Y button being held, and a latch so the Menu button's
+// release is swallowed after the shortcut fires (so it never opens the OSD).
+static uint8_t ra_combo_y[NUMDEV] = {};
+static uint8_t ra_combo_fired[NUMDEV] = {};
+
 // tracking of key states for handling inputs
 // we OR all of them together at the end of the input path to determine which
 // of the 32 virtual buttons should be pressed or released for a given player.
@@ -3253,6 +3260,10 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			if (ev->value) input[dev].osd_combo |= 1;
 			else input[dev].osd_combo &= ~1;
 		}
+
+		// Track the Y button for the in-game RA list shortcut.
+		if (input[dev].mmap[SYS_BTN_Y] && ev->code == input[dev].mmap[SYS_BTN_Y])
+			ra_combo_y[dev] = ev->value ? 1 : 0;
 	}
 
 	int osd_event = 0;
@@ -3279,6 +3290,25 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			}
 		}
 		osd_timer = 0;
+	}
+
+	// In-game shortcut: hold Y and tap the Menu button to open the achievement
+	// list instead of the OSD (retroachievements.cfg: list_hotkey, default off).
+	// The Menu press is swallowed here; a latch swallows the matching release.
+	if (achievements_list_hotkey_enabled())
+	{
+		if (osd_event == 1 && !mapping && !user_io_osd_is_visible()
+			&& achievements_has_active_game() && ra_combo_y[dev])
+		{
+			osd_event = 0;
+			ra_combo_fired[dev] = 1;
+			menu_key_set(KEY_F6);
+		}
+		else if (osd_event == 2 && ra_combo_fired[dev])
+		{
+			osd_event = 0;
+			ra_combo_fired[dev] = 0;
+		}
 	}
 
 

@@ -44,6 +44,7 @@
 #include "scaler.h"
 #include "support.h"
 #include "support/physical_disc/physical_disc_launch.h"
+#include "achievements.h"
 
 static char core_path[1024] = {};
 static char rbf_path[1024] = {};
@@ -264,6 +265,13 @@ char is_sgb()
 	return (is_sgb_type == 1);
 }
 
+static int is_nes_type = 0;
+char is_nes()
+{
+	if (!is_nes_type) is_nes_type = strcasecmp(orig_name, "NES") ? 2 : 1;
+	return (is_nes_type == 1);
+}
+
 static int is_cpc_type = 0;
 char is_cpc()
 {
@@ -382,6 +390,13 @@ char is_gba()
 	return (is_gba_type == 1);
 }
 
+static int is_sms_type = 0;
+char is_sms()
+{
+	if (!is_sms_type) is_sms_type = strcasecmp(orig_name, "SMS") ? 2 : 1;
+	return (is_sms_type == 1);
+}
+
 static int is_c64_type = 0;
 char is_c64()
 {
@@ -498,6 +513,7 @@ void user_io_read_core_name()
 	is_snes_type = 0;
 	is_apple2_type = 0;
 	is_sgb_type = 0;
+	is_nes_type = 0;
 	is_cpc_type = 0;
 	is_zx81_type = 0;
 	is_neogeo_type = 0;
@@ -506,6 +522,7 @@ void user_io_read_core_name()
 	is_pce_type = 0;
 	is_archie_type = 0;
 	is_gba_type = 0;
+	is_sms_type = 0;
 	is_c64_type = 0;
 	is_c128_type = 0;
 	is_atari800_type = 0;
@@ -3270,6 +3287,7 @@ int user_io_get_kbd_reset()
 
 void user_io_set_kbd_reset(int reset)
 {
+        if (reset && !kbd_reset_ovr && !kbd_reset) achievements_notify_core_reset();
 	kbd_reset_ovr = reset;
 }
 
@@ -3581,7 +3599,14 @@ void user_io_poll()
 			{
 				//printf("SD WR %llu on %d\n", lba, disk);
 
-				if (use_save) menu_process_save();
+				if (use_save)
+				{
+					menu_process_save();
+					// Suspend RA evaluation: on cores that share the save
+					// port with the RA read path this transfer corrupts
+					// RA-visible save-RAM reads (see achievements_notify_save_io).
+					achievements_notify_save_io();
+				}
 
 				buffer_lba[disk] = -1;
 
@@ -3629,6 +3654,12 @@ void user_io_poll()
 			}
 			else if (op & 1)
 			{
+				// Save-slot reads (load backup / restore): same port-sharing
+				// corruption as writes. Strict disk check so CD-image reads on
+				// other slots never arm the guard.
+				if (use_save && (disk == 0 || (is_saturn() && disk == 1)))
+					achievements_notify_save_io();
+
 				uint32_t buf_n = sizeof(buffer[0]) / blksz;
 				if (is_psx() && blksz == 2352)
 				{
@@ -3653,6 +3684,7 @@ void user_io_poll()
 					if (blksz == 2352 && is_psx())
 					{
 						diskled_on();
+						RaProbeScope p(RA_PROBE_CD);
 						psx_read_cd(buffer[disk], lba, buf_n);
 						done = 1;
 						buffer_lba[disk] = lba;
@@ -3742,6 +3774,7 @@ void user_io_poll()
 					lba += blks;
 					if (blksz == 2352 && is_psx())
 					{
+						RaProbeScope p(RA_PROBE_CD);
 						psx_read_cd(buffer[disk], lba, buf_n);
 						buffer_lba[disk] = lba;
 					}
@@ -4414,6 +4447,7 @@ void user_io_check_reset(unsigned short modifiers, char useKeys)
 	{
 		if (modifiers & 2) // with lshift - cold reset
 		{
+                        if (!coldreset_req) achievements_notify_core_reset();
 			coldreset_req = 1;
 		}
 		else
@@ -4421,7 +4455,10 @@ void user_io_check_reset(unsigned short modifiers, char useKeys)
 		{
 		case CORE_TYPE_8BIT:
 			if(is_minimig()) minimig_reset();
-			else kbd_reset = 1;
+                        else {
+                                if (!kbd_reset) achievements_notify_core_reset();
+                                kbd_reset = 1;
+                        }
 			break;
 		}
 	}

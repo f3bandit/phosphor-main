@@ -22,7 +22,9 @@ static const char *got(int s) { for (int i = 0; i < 5; i++) phosphor_poll(); int
 int main() {
 	phosphor_poll();
 	int a = conn(), b = conn();
-	say(a, "hello"); CHECK(strstr(got(a), "\"api\":5") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true") && strstr(rb, "\"mapping\":true") && strstr(rb, "\"disc\":true") && strstr(rb, "\"ingame\":true"), "hello");
+	say(a, "hello"); CHECK(strstr(got(a), "\"api\":6") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true") && strstr(rb, "\"mapping\":true") && strstr(rb, "\"disc\":true") && strstr(rb, "\"ingame\":true") && strstr(rb, "\"ra\":true"), "hello");
+	say(a, "ra"); CHECK(strstr(got(a), "\"active\":false"), "ra: no RetroAchievements core, inactive");
+	say(a, "ra list"); CHECK(strstr(got(a), "\"achievements\":[]"), "ra list: empty without a game");
 	say(a, "status"); CHECK(strstr(got(a), "\"owner\":\"main\""), "status: Main owns the screen");
 	say(a, "screen phosphor"); CHECK(strstr(got(a), "\"ok\":true") && g_screen_req == 1, "screen phosphor -> framebuffer on");
 	say(b, "screen phosphor"); CHECK(strstr(got(b), "another client"), "second client can't take it");

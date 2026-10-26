@@ -38,6 +38,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "osd.h"
 #include "offload.h"
 #include "support/physical_disc/physical_disc_launch.h"
+#include "achievements.h"
 
 const char *version = "$VER:" VDATE;
 
@@ -97,6 +98,7 @@ int main(int argc, char *argv[])
 
 	FindStorage();
 	user_io_init((argc > 1) ? argv[1] : "",(argc > 2) ? argv[2] : NULL);
+	achievements_init();
 
 	physical_disc_launch_startup();
 
