@@ -586,13 +586,21 @@ static void drop(int i)
 	if (script_client == i) script_client = -1;   // (the script carries on; nobody to tell)
 }
 
+// the file loaded into the running core (Main restarts with each core, so this is always this core's)
+static char cur_file[1024];
+void phosphor_file_loaded(const char *path)
+{
+	snprintf(cur_file, sizeof(cur_file), "%s", path ? path : "");
+}
+
 static void status_line(char *out, size_t n)
 {
-	char core[128];
+	char core[128], file[2100];
 	json_str(core, sizeof(core), user_io_get_core_name());
-	snprintf(out, n, "{\"ok\":true,\"core\":\"%s\",\"menu\":%s,\"osd\":%s,\"fb\":%s,\"owner\":\"%s\",\"sheet\":%s}",
+	json_str(file, sizeof(file), cur_file);
+	snprintf(out, n, "{\"ok\":true,\"core\":\"%s\",\"menu\":%s,\"osd\":%s,\"fb\":%s,\"owner\":\"%s\",\"sheet\":%s,\"file\":\"%s\"}",
 		core, is_menu() ? "true" : "false", user_io_osd_is_visible() ? "true" : "false",
-		video_fb_state() ? "true" : "false", owner >= 0 ? "phosphor" : "main", sheet_client >= 0 ? "true" : "false");
+		video_fb_state() ? "true" : "false", owner >= 0 ? "phosphor" : "main", sheet_client >= 0 ? "true" : "false", file);
 }
 
 static void command(int i, char *line)
@@ -604,8 +612,9 @@ static void command(int i, char *line)
 	else if (!strncmp(line, "script ", 7)) script_start(i, line + 7);
 	else if (!strcmp(line, "status"))
 	{
-		status_line(out, sizeof(out));
-		send_line(i, out);
+		char st[2600];
+		status_line(st, sizeof(st));
+		send_line(i, st);
 	}
 	else if (!strcmp(line, "subscribe"))
 	{

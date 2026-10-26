@@ -7,6 +7,7 @@
 
 // called from the UI loop (scheduler.cpp / main.cpp): accepts clients, runs their commands, sends events
 void phosphor_poll(void);
+void phosphor_file_loaded(const char *path);   // a file was loaded into the core (MiSTer's menu or an MGL): "status" reports it
 // a controller button (MiSTer's JOY_* mask) while the framebuffer is up: 1 if it went to the shell
 int phosphor_pad(uint32_t mask, int press);
 
