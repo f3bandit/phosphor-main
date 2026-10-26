@@ -147,6 +147,14 @@ int main() {
 		say(f, "ingame off"); CHECK(strstr(got(f), "\"ok\":true") && g_fb == 0, "ingame off: the game again");
 		CHECK(phosphor_pad(0x08, 1) == 0, "ingame off: the controller goes to the game");
 		phosphor_pad(0x08, 0);
+		say(f, "sheet on"); got(f);
+		say(f, "ingame on"); got(f);
+		say(f, "ingame osd"); CHECK(strstr(got(f), "\"ok\":true"), "ingame osd");
+		CHECK(phosphor_filter_key(KEY_F12) == KEY_F12, "ingame osd: Main's own menu key opens the OSD at once (not held for a short press)");
+		CHECK(phosphor_filter_key(KEY_F12) == 0, "and the next menu button is a short press for the sheet again");
+		phosphor_filter_key(KEY_F12 | UPSTROKE); got(f);
+		say(f, "sheet off"); got(f);
+		phosphor_pad(0x08, 0);
 		say(f, "ingame on"); got(f); g_fb = 0; usleep(1000);
 		CHECK(strstr(got(f), "\"event\":\"ingame\",\"on\":false"), "Main took the screen back: told");
 		close(f); got(f);
