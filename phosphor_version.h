@@ -4,5 +4,5 @@
 // Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #ifndef PHOSPHOR_VERSION_H
 #define PHOSPHOR_VERSION_H
-#define PHOSPHOR_VERSION "0.27.39"
+#define PHOSPHOR_VERSION "0.27.41"
 #endif
