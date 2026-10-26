@@ -1,4 +1,5 @@
 // Phosphor: the dock's CD/DVD drive for Phosphor's API (phosphor_disc.cpp). GPL-3.0.
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #ifndef PHOSPHOR_DISC_H
 #define PHOSPHOR_DISC_H
 #include <stddef.h>

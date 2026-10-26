@@ -59,6 +59,7 @@
 //   (12..19) isn't asked.
 // Apart from those commands nothing here talks to the FPGA directly: it uses Main's own
 // functions, from Main's UI loop.
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #include "phosphor.h"
 #include "phosphor_disc.h"
 #include "scaler.h"

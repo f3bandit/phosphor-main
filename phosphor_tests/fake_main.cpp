@@ -2,6 +2,7 @@
 // it, serving the real socket API. FAKE_EXT=0 starts with the stock menu core; "launch" of a
 // file named menu_phosphor.rbf restarts it with the Phosphor one, like Main restarting on a core load.
 //   g++ -I.. fake_main.cpp stubs.cpp ../phosphor.cpp -o fake_main && PHOSPHOR_MAIN_SOCK=/tmp/m.sock ./fake_main
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #include "phosphor.h"
 #include <stdio.h>
 #include <stdlib.h>
