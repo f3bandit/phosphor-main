@@ -159,6 +159,14 @@ int main() {
 		phosphor_thumbs(4, 0, 1); phosphor_thumbs(5, 1, 1);
 		CHECK(g_shots == s0 + 2, "two controllers, one stick each: nothing");
 		phosphor_thumbs(4, 0, 0); phosphor_thumbs(5, 1, 0);
+		{
+			int ow = conn(); say(ow, "screen phosphor"); got(ow); int fbw = g_fb; g_fb = 1;     /* Phosphor's in-game menu up */
+			phosphor_thumbs(6, 0, 1); phosphor_thumbs(6, 1, 1);
+			CHECK(g_shots == s0 + 2, "Phosphor's picture up in a game: not MiSTer's (the shell saves it)");
+			phosphor_thumbs(6, 0, 0); phosphor_thumbs(6, 1, 0);
+			g_fb = fbw; say(ow, "screen main"); got(ow); close(ow);
+		}
+		phosphor_thumbs(4, 0, 0); phosphor_thumbs(5, 1, 0);
 		int c = conn();
 		say(c, "shot off"); got(c);
 		phosphor_thumbs(3, 0, 1); phosphor_thumbs(3, 1, 1);
