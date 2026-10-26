@@ -1,5 +1,6 @@
 // Phosphor: a small local API so the Phosphor shell and phosphord can work with Main instead of
 // around it. Part of phosphor-main (a fork of MiSTer-devel/Main_MiSTer), GPL-3.0 like Main.
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #ifndef PHOSPHOR_H
 #define PHOSPHOR_H
 

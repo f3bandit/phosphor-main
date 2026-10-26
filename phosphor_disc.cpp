@@ -16,6 +16,7 @@
 //   disc eject      opens the tray (also when no disc is in, and during a game: changing discs)
 //   disc off|on     Phosphor's Settings › Discs: off, the drive isn't watched or read at all ("state":"off")
 //   event           {"event":"disc",...the same...} to subscribers when it changes
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #include "phosphor_disc.h"
 #include "user_io.h"
 #include "hardware.h"

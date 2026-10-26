@@ -102,3 +102,15 @@ On a card with Phosphor installed, by hand (undone by a reboot):
 /media/fat/phosphor/phosphor.sh main     # this Main in place of MiSTer's
 /media/fat/phosphor/phosphor.sh start    # the shell; it takes the screen through the API
 ```
+
+## Licence
+
+Phosphor's Main is a fork of MiSTer's Main ([MiSTer-devel/Main_MiSTer](https://github.com/MiSTer-devel/Main_MiSTer))
+with odelot's RetroAchievements Main ([odelot/Main_MiSTer](https://github.com/odelot/Main_MiSTer)) merged in,
+all under the GNU General Public License version 3 (LICENSE). Phosphor's own files (phosphor*.cpp/h,
+phosphor_tests/) are Copyright (C) 2026 f3bandit under the same licence. rcheevos (lib/rcheevos) is MIT
+(lib/rcheevos/LICENSE).
+
+`achievement.wav`, the unlock sound, comes from odelot's RetroAchievements Main, where it was added with
+his work; its origin and licence are his, and it is not Phosphor's. Credit: odelot. If it is yours and you
+want it credited differently or taken out, open an issue and it will be.

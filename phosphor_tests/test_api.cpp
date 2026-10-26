@@ -1,4 +1,5 @@
 // Tests for phosphor.cpp (Phosphor API in Main). GPL-3.0 like the rest of this repo.
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #include "phosphor.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,4 +1,5 @@
 // stand-ins for Main's functions, to test phosphor.cpp on its own
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
