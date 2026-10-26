@@ -1681,6 +1681,8 @@ void HandleUI(void)
 		}
 	}
 
+	if (menustate == fs_MenuSelect) phosphor_file_loaded(selPath);   // Phosphor: the game chosen in MiSTer's menu, for its in-game menu
+
 	// Ensure we clear out the file-selector-visible file on select or cancel
 	if (cfg.log_file_entry)
 	{
@@ -2883,6 +2885,7 @@ void HandleUI(void)
 				else snprintf(selPath, sizeof(selPath), "%s/%s", HomeDir(), mgl->item[mgl->current].path);
 
 				// Update /tmp/ files to reflect the actual file being loaded by MGL
+				phosphor_file_loaded(selPath);           // Phosphor: what game is running, for its in-game menu
 				if (cfg.log_file_entry)
 				{
 					const char *fname = strrchr(selPath, '/');
@@ -3008,6 +3011,7 @@ void HandleUI(void)
 				else snprintf(selPath, sizeof(selPath), "%s/%s", HomeDir(((is_pce() && !strncasecmp(fs_pFileExt, "CUE", 3)) ? PCECD_DIR : NULL)), mgl->item[mgl->current].path);
 
 				// Update /tmp/ files to reflect the actual image being loaded by MGL
+				phosphor_file_loaded(selPath);           // Phosphor: what game is running, for its in-game menu
 				if (cfg.log_file_entry)
 				{
 					const char *fname = strrchr(selPath, '/');
@@ -6667,6 +6671,7 @@ void HandleUI(void)
 			else if (p[0] == '.' && p[1] == '.') snprintf(selPath, sizeof(selPath), "%s/%s", getRootDir(), p);
 			else snprintf(selPath, sizeof(selPath), "%s/%s", HomeDir(), p);
 			// Update /tmp/ files to reflect the actual file being loaded by MGL
+			phosphor_file_loaded(selPath);           // Phosphor: what game is running, for its in-game menu
 			if (cfg.log_file_entry)
 			{
 				const char *fname = strrchr(selPath, '/');

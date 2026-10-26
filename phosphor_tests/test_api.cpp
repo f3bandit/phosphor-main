@@ -26,6 +26,9 @@ int main() {
 	say(a, "ra"); CHECK(strstr(got(a), "\"active\":false"), "ra: no RetroAchievements core, inactive");
 	say(a, "ra list"); CHECK(strstr(got(a), "\"achievements\":[]"), "ra list: empty without a game");
 	say(a, "status"); CHECK(strstr(got(a), "\"owner\":\"main\""), "status: Main owns the screen");
+	CHECK(strstr(rb, "\"file\":\"\""), "status: no file loaded yet");
+	phosphor_file_loaded("/media/usb0/games/NES/Castle \"Quest\".nes");
+	say(a, "status"); CHECK(strstr(got(a), "\"file\":\"/media/usb0/games/NES/Castle \\\"Quest\\\".nes\""), "status: the file loaded, quoted for JSON");
 	say(a, "screen phosphor"); CHECK(strstr(got(a), "\"ok\":true") && g_screen_req == 1, "screen phosphor -> framebuffer on");
 	say(b, "screen phosphor"); CHECK(strstr(got(b), "another client"), "second client can't take it");
 	say(b, "subscribe"); got(b);
