@@ -104,6 +104,8 @@ static ph_client_t cl[PH_MAX];
 static int owner = -1;           // index of the client that owns the screen, -1: Main
 static int sheet_client = -1;    // the client that turned the in-game sheet on
 static int ingame_client = -1;   // Phosphor's screen is shown over the running game for this client
+static uint32_t rep_mask;        // the held direction repeated to the shell (phosphor_pad), 0: none
+static unsigned long rep_next;
 static char last_core[64];
 static int last_osd = -1;
 static unsigned long f12_down;   // when the menu button went down (sheet), 0: not held
@@ -581,7 +583,7 @@ static void drop(int i)
 	if (mp.client == i && phosphor_mapping) map_end(0);   // the shell went away mid-mapping: nothing saved
 	if (owner == i) give_back();      // the shell went away: Main's menu comes back
 	if (sheet_client == i) sheet_client = -1;
-	if (ingame_client == i) { ingame_client = -1; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
+	if (ingame_client == i) { ingame_client = -1; rep_mask = 0; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
 	if (card_op.client == i) card_op.client = -1;   // (the card finishes on its own)
 	if (ports_client == i) ports_set(-1, 0);
 	if (script_client == i) script_client = -1;   // (the script carries on; nobody to tell)
@@ -692,13 +694,13 @@ static void command(int i, char *line)
 	else if (!strcmp(line, "ingame osd"))
 	{
 		// from Phosphor's in-game menu to MiSTer's own (the core's options): Phosphor's screen off, the OSD open
-		if (ingame_client == i) { ingame_client = -1; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
+		if (ingame_client == i) { ingame_client = -1; rep_mask = 0; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
 		if (!is_menu() && !user_io_osd_is_visible()) menu_key_set(KEY_F12);
 		send_line(i, "{\"ok\":true}");
 	}
 	else if (!strcmp(line, "ingame off"))
 	{
-		if (ingame_client == i) { ingame_client = -1; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
+		if (ingame_client == i) { ingame_client = -1; rep_mask = 0; if (!is_menu() && video_fb_state()) video_fb_enable(0); }
 		send_line(i, "{\"ok\":true}");
 	}
 	else if (!strcmp(line, "shot on") || !strcmp(line, "shot off"))
@@ -801,8 +803,6 @@ static void read_client(int i)
 // Controllers for the shell, the way MiSTer's own menu gets them: Main reads them, with the button mapping
 // set up in MiSTer, and the shell gets the buttons as events {"event":"pad","b":"up","p":1|0|2} (2: held,
 // repeated like MiSTer's menu does). Called from input.cpp while the Linux framebuffer is up.
-static uint32_t rep_mask;
-static unsigned long rep_next;
 static const char *pad_name(uint32_t m)
 {
 	switch (m)
@@ -832,12 +832,12 @@ static void pad_send(uint32_t m, int p)
 }
 int phosphor_pad(uint32_t mask, int press)
 {
+	if (!press && mask == rep_mask) rep_mask = 0;   // whoever has the controller now: no more repeats
 	if (script_state == 1) return 0;           // the script has the controllers (MiSTer's terminal keys)
 	if (script_state == 2) { if (press) script_finish(); return 1; }
 	if (owner < 0 || !(is_menu() || ingame_client == owner) || !pad_name(mask)) return 0;
 	pad_send(mask, press ? 1 : 0);
 	if (press && (mask & JOY_MOVE)) { rep_mask = mask; rep_next = GetTimer(320); }
-	else if (!press && mask == rep_mask) rep_mask = 0;
 	return 1;
 }
 
@@ -875,6 +875,7 @@ void phosphor_poll(void)
 	{
 		if (cl[ingame_client].fd >= 0) send_line(ingame_client, "{\"event\":\"ingame\",\"on\":false}");
 		ingame_client = -1;
+		rep_mask = 0;
 	}
 
 	// events
@@ -885,6 +886,7 @@ void phosphor_poll(void)
 		snprintf(last_core, sizeof(last_core), "%s", core);
 		ext_ver = -1;                       // another core (or the menu core again): ask again
 		ingame_client = -1;                 // the in-game screen belongs to the game that's gone
+		rep_mask = 0;
 		if (ports_client >= 0 && !is_menu()) { ports_client = -1; pad_seq.step = 0; }
 		json_str(name, sizeof(name), core);
 		snprintf(ev, sizeof(ev), "{\"event\":\"core\",\"name\":\"%s\",\"menu\":%s}", name, is_menu() ? "true" : "false");

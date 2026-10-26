@@ -1750,6 +1750,7 @@ static int grabbed = 1;
 
 static uint32_t osd_timer = 0;
 static uint32_t map_advance_timer = 0;
+static int map_sel_down, map_start_down;   // Phosphor's mapping: Select / Start held (both: cancel)
 
 void start_map_setting(int cnt, int set, advancedButtonMap *abm_store)
 {
@@ -1778,6 +1779,7 @@ void start_map_setting(int cnt, int set, advancedButtonMap *abm_store)
 	mapping_clear = 0;
 	mapping_finish = 0;
 	tmp_axis_n = 0;
+	map_sel_down = map_start_down = 0;   // a Start still held from the last mapping isn't half of Select + Start
 
 	if (mapping_type <= 1 && is_menu()) mapping_button = -6;
 	memset(tmp_axis, 0, sizeof(tmp_axis));
@@ -3321,12 +3323,11 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 	if (mapping && phosphor_mapping && mapping_type <= 1)
 	{
 		// cancel, nothing saved: Esc on a keyboard, or Select + Start together on the controller
-		static int sel_down, start_down;
 		if (ev->type == EV_KEY && ev->code == KEY_ESC && ev->value == 1) { phosphor_map_cancel = 1; return; }
 		if (ev->type == EV_KEY && (ev->code == BTN_SELECT || ev->code == BTN_START) && ev->value != 2)
 		{
-			if (ev->code == BTN_SELECT) sel_down = ev->value; else start_down = ev->value;
-			if (sel_down && start_down) { sel_down = start_down = 0; phosphor_map_cancel = 1; return; }
+			if (ev->code == BTN_SELECT) map_sel_down = ev->value; else map_start_down = ev->value;
+			if (map_sel_down && map_start_down) { map_sel_down = map_start_down = 0; phosphor_map_cancel = 1; return; }
 		}
 		uint32_t vp = ((uint32_t)input[dev].vid << 16) | input[dev].pid;
 		if (phosphor_map_vidpid && vp != phosphor_map_vidpid) return;

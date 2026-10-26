@@ -137,6 +137,12 @@ int main() {
 		say(f, "ingame on"); CHECK(strstr(got(f), "\"ok\":true") && g_fb == 1, "ingame on: Phosphor's screen over the game");
 		CHECK(phosphor_pad(0x08, 1) == 1 && strstr(got(f), "\"event\":\"pad\""), "ingame: the controller goes to Phosphor");
 		phosphor_pad(0x08, 0); got(f);
+		// a direction held while the in-game menu closes: no repeats after, and its release goes to the game
+		phosphor_pad(0x08, 1); got(f);
+		say(f, "ingame off"); got(f); usleep(400000);
+		CHECK(!strstr(got(f), "\"event\":\"pad\""), "ingame off with up held: no repeats to the shell");
+		CHECK(phosphor_pad(0x08, 0) == 0 && !strstr(got(f), "\"event\":\"pad\""), "ingame off: the held direction's release goes to the game");
+		say(f, "ingame on"); got(f);
 		say(f, "ingame off"); CHECK(strstr(got(f), "\"ok\":true") && g_fb == 0, "ingame off: the game again");
 		CHECK(phosphor_pad(0x08, 1) == 0, "ingame off: the controller goes to the game");
 		phosphor_pad(0x08, 0);
