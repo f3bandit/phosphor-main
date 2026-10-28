@@ -91,7 +91,6 @@ void menu_phosphor_screen(int phosphor);        // menu.cpp
 #define PH_SOCK "/tmp/phosphor-main.sock"
 #define PH_MAX 4
 #define PH_LINE 1024
-#define PH_LONG_PRESS_MS 700
 
 typedef struct {
 	int fd;
@@ -1028,14 +1027,11 @@ uint32_t phosphor_filter_key(uint32_t c)
 			if (!f12_down) f12_down = GetTimer(0);     // (held keys repeat: keep the first press)
 			return 0;                                  // wait: short or long press?
 		}
-		unsigned long held = f12_down ? GetTimer(0) - f12_down : PH_LONG_PRESS_MS;
+		// any press, short or held, opens Phosphor's in-game menu; MiSTer's OSD opens only from its
+		// "MiSTer menu (OSD)" entry (8BitDo pads power off when Home is held, so no hold-for-OSD)
 		f12_down = 0;
-		if (held < PH_LONG_PRESS_MS)
-		{
-			event_all("{\"event\":\"menu_button\"}");   // the in-game sheet
-			return 0;
-		}
-		return c;                                      // long press: the OSD, as usual
+		event_all("{\"event\":\"menu_button\"}");       // the in-game sheet
+		return 0;
 	}
 	return c;
 }
