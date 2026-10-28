@@ -1877,7 +1877,14 @@ void achievements_load_game(const char *rom_path, uint32_t crc32)
 
 #ifdef HAS_RCHEEVOS
         if (g_client && g_rom_md5[0]) {
-                if (!g_logged_in && !g_login_pending && g_has_credentials) {
+                if (!g_logged_in && !g_login_pending && g_has_credentials && !g_mirror_validated) {
+                        // Phosphor: the login waits until the core shows its RetroAchievements memory
+                        // mirror. A core without RetroAchievements (a stock core of the same name) never
+                        // does, so it gets no login, no "no internet" pop-up and no login error.
+                        RA_LOG("Login waits for the core's RetroAchievements mirror.");
+                        g_login_deferred = 1;
+                        g_game_load_deferred = 1;
+                } else if (!g_logged_in && !g_login_pending && g_has_credentials) {
                         if (!ra_has_internet_connectivity()) {
                                 RA_LOG("No internet connectivity, skipping RA login for now.");
                                 ra_show_no_internet_popup();
@@ -2088,6 +2095,19 @@ static void ra_poll_impl(void)
 					ra_update_user_agent();
 				}
 
+				// Phosphor: the login that waited for the mirror (see achievements_load_game)
+				if (g_login_deferred && !g_logged_in && !g_login_pending && g_has_credentials) {
+					if (!ra_has_internet_connectivity()) {
+						RA_LOG("Mirror validated, no internet: login deferred.");
+						ra_show_no_internet_popup();
+					} else {
+						RA_LOG("Mirror validated: starting the RA login for '%s'.", g_ra_user);
+						g_login_deferred = 0;
+						g_login_pending = 1;
+						g_game_load_deferred = 1;
+						ra_begin_login();
+					}
+				}
                                 // Trigger deferred game load (mirror activated, already logged in)
 				if (g_game_load_deferred && g_logged_in && g_rom_md5[0]
 						&& !g_game_load_pending) {
@@ -3170,7 +3190,7 @@ void achievements_phosphor_status(char *out, size_t n)
 	ph_json_str(err, sizeof(err), g_ph_login_error);
 	snprintf(out, n, "{\"ok\":true,\"active\":%s,\"logged_in\":%s,\"user\":\"%s\",\"login_error\":\"%s\",\"hardcore\":%s,"
 		"\"game\":%u,\"title\":\"%s\",\"total\":%u,\"unlocked\":%u,\"points\":%u,\"points_unlocked\":%u}",
-		g_active_handler ? "true" : "false", logged ? "true" : "false", user, err,
+		g_active_handler && g_mirror_validated ? "true" : "false", logged ? "true" : "false", user, err,
 		achievements_hardcore_active() ? "true" : "false", loaded ? gid : 0, title, total, unlocked, pts, pts_unlocked);
 }
 
