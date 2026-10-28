@@ -2584,7 +2584,7 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 			}
 			input_cb(&ev, 0, 0, true);
 		}
-		else if (video_fb_state() && phosphor_pad(mask, press))
+		else if ((video_fb_state() || phosphor_ingame_text()) && phosphor_pad(mask, press))
 		{
 			// Phosphor's shell has the screen: the button went to it, mapped the way MiSTer has it
 		}

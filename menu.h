@@ -27,7 +27,8 @@ void InfoAt(const char *message, int timeout = 2000, int y_pos = 10, int frame =
 // display crops the sides (e.g. HDMI forced to 4:3 on a TV).
 void InfoAligned(const char *message, int timeout = 2000, int align = INFO_ALIGN_LEFT, int frame = 0);
 void MenuHide();
-void phosphor_osd_menu(const char *title, const char *text, int sel);
+int phosphor_osd_menu(const char *title, const char *text, int sel);   // -1: MiSTer's menu has the OSD
+int phosphor_osd_own(void);
 void phosphor_osd_menu_off(void);
 int phosphor_osd_menu_shown(void);
 void SelectINI();

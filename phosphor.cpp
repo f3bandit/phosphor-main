@@ -582,10 +582,13 @@ static void script_poll(void)
 	}
 }
 
+static uint32_t text_shown_at;      // text mode: when the OSD was last seen showing Phosphor's menu (+1 s)
 static void ingame_end_text(void)
 {
+	text_shown_at = 0;
 	if (ingame_text) { ingame_text = 0; phosphor_osd_menu_off(); }
 }
+int phosphor_ingame_text(void) { return ingame_text && ingame_client >= 0; }
 
 static void drop(int i)
 {
@@ -706,7 +709,7 @@ static void crt_command(int i, const char *args)
 			fclose(f);
 			rename(PH_CRT_CFG ".tmp", PH_CRT_CFG);
 		}
-		crt_apply();
+		if (ext_present()) crt_apply();                  // (Phosphor's menu core only: the stock one has no such bits)
 	}
 	char out[160];
 	snprintf(out, sizeof(out), "{\"ok\":true,\"crt\":{\"on\":%s,\"mode\":%d,\"h\":%d,\"v\":%d,\"menu\":%s}}",
@@ -752,6 +755,7 @@ static void command(int i, char *line)
 		if (is_menu()) { send_line(i, "{\"ok\":false,\"error\":\"no game is running\"}"); return; }
 		if (owner >= 0 && owner != i) { send_line(i, "{\"ok\":false,\"error\":\"another client has the screen\"}"); return; }
 		if (user_io_osd_is_visible()) menu_key_set(KEY_F12);   // MiSTer's menu closes first
+		ingame_end_text();                              // (from the text in-game menu: that one off)
 		owner = i;
 		ingame_client = i;
 		video_chvt(1);
@@ -769,8 +773,10 @@ static void command(int i, char *line)
 		if (is_menu()) { send_line(i, "{\"ok\":false,\"error\":\"no game is running\"}"); return; }
 		if (owner >= 0 && owner != i) { send_line(i, "{\"ok\":false,\"error\":\"another client has the screen\"}"); return; }
 		if (user_io_osd_is_visible()) menu_key_set(KEY_F12);
+		if (video_fb_state()) video_fb_enable(0);       // (from the framebuffer in-game menu: that one off)
 		owner = i;
 		ingame_client = i;
+		ingame_end_text();
 		ingame_text = 1;
 		send_line(i, "{\"ok\":true}");
 	}
@@ -786,7 +792,16 @@ static void command(int i, char *line)
 		if (body) { size_t n = (size_t)(body - end) < sizeof(title) - 1 ? (size_t)(body - end) : sizeof(title) - 1; memcpy(title, end, n); title[n] = 0; body++; }
 		else body = end;
 		for (char *c = body; *c; c++) if (*c == 0x1f) *c = '\n';
-		phosphor_osd_menu(title, body, (int)sel);
+		if (phosphor_osd_menu(title, body, (int)sel))
+		{
+			// MiSTer's menu still has the OSD: text mode ends, and the shell is told
+			ingame_client = -1;
+			ingame_end_text();
+			rep_mask = 0;
+			send_line(i, "{\"ok\":false,\"error\":\"MiSTer's menu has the OSD\"}");
+			send_line(i, "{\"event\":\"ingame\",\"on\":false}");
+			return;
+		}
 		send_line(i, "{\"ok\":true}");
 	}
 	else if (!strcmp(line, "ingame osd"))
@@ -974,7 +989,6 @@ void phosphor_poll(void)
 	phosphor_disc_poll(event_all);
 	// MiSTer's menu (a long press) or Main itself took the screen back from Phosphor's in-game menu
 	// MiSTer's menu (a long press) took the OSD from Phosphor's text in-game menu: that ends it
-	static uint32_t text_shown_at;
 	if (ingame_text && ingame_client >= 0)
 	{
 		if (phosphor_osd_menu_shown()) text_shown_at = GetTimer(1000);
