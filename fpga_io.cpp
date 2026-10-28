@@ -637,7 +637,12 @@ char *getappname()
 
 	char path[64];
 	sprintf(path, "/proc/%d/exe", getpid());
-	readlink(path, dest, PATH_MAX);
+	readlink(path, dest, PATH_MAX - 1);
+
+	// Phosphor: an update replaces Main's file while this one keeps running, and Linux then names it
+	// "<path> (deleted)"; restarting to that (the next core) failed and rebooted. The path is the new Main.
+	size_t n = strlen(dest), dl = strlen(" (deleted)");
+	if (n > dl && !strcmp(dest + n - dl, " (deleted)")) dest[n - dl] = 0;
 
 	return dest;
 }
