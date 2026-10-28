@@ -644,12 +644,73 @@ static void status_line(char *out, size_t n)
 		video_fb_state() ? "true" : "false", owner >= 0 ? "phosphor" : "main", sheet_client >= 0 ? "true" : "false", file);
 }
 
+/* Phosphor's CRT mode: Phosphor's own frames out of the analog port at a TV's own timing (15 kHz 240p /
+   288p, 480i / 576i, or 31 kHz 480p / 576p), through Phosphor's menu core's native video path (from
+   Retro-Remake's menu_ConsoleMode): status[9] on, [24:22] the mode, [15:10] / [21:16] the centering.
+   The shell draws into the native buffer at the mode's size. Kept in phosphor/config/crt ("on mode h v")
+   and set again on every menu core load (a new core starts with its status cleared). */
+#define PH_CRT_CFG "/media/fat/phosphor/config/crt"
+static struct { int on, mode, h, v, loaded, applied; } crt;
+
+static void crt_load(void)
+{
+	if (crt.loaded) return;
+	crt.loaded = 1;
+	FILE *f = fopen(PH_CRT_CFG, "r");
+	if (!f) return;
+	int on = 0, mode = 0, h = 0, v = 0;
+	if (fscanf(f, "%d %d %d %d", &on, &mode, &h, &v) == 4)
+	{
+		crt.on = on ? 1 : 0;
+		crt.mode = mode & 7;
+		crt.h = h < -31 ? -31 : h > 31 ? 31 : h;
+		crt.v = v < -31 ? -31 : v > 31 ? 31 : v;
+	}
+	fclose(f);
+}
+
+static void crt_apply(void)
+{
+	if (!is_menu()) return;
+	user_io_status_set("[24:22]", (uint32_t)crt.mode);
+	user_io_status_set("[15:10]", (uint32_t)(crt.h & 63));
+	user_io_status_set("[21:16]", (uint32_t)(crt.v & 63));
+	user_io_status_set("[9]", crt.on ? 1 : 0);
+	crt.applied = 1;
+	printf("Phosphor: CRT mode %s (mode %d, centering %d %d)\n", crt.on ? "on" : "off", crt.mode, crt.h, crt.v);
+}
+
+static void crt_command(int i, const char *args)
+{
+	crt_load();
+	int on, mode, h, v;
+	if (args && sscanf(args, "%d %d %d %d", &on, &mode, &h, &v) == 4)
+	{
+		crt.on = on ? 1 : 0;
+		crt.mode = mode & 7;
+		crt.h = h < -31 ? -31 : h > 31 ? 31 : h;
+		crt.v = v < -31 ? -31 : v > 31 ? 31 : v;
+		FILE *f = fopen(PH_CRT_CFG ".tmp", "w");
+		if (f)
+		{
+			fprintf(f, "%d %d %d %d\n", crt.on, crt.mode, crt.h, crt.v);
+			fclose(f);
+			rename(PH_CRT_CFG ".tmp", PH_CRT_CFG);
+		}
+		crt_apply();
+	}
+	char out[160];
+	snprintf(out, sizeof(out), "{\"ok\":true,\"crt\":{\"on\":%s,\"mode\":%d,\"h\":%d,\"v\":%d,\"menu\":%s}}",
+		crt.on ? "true" : "false", crt.mode, crt.h, crt.v, is_menu() ? "true" : "false");
+	send_line(i, out);
+}
+
 static void command(int i, char *line)
 {
 	char out[512];
 	while (*line == ' ') line++;
 	if (!strcmp(line, "hello"))
-		send_line(i, "{\"ok\":true,\"api\":6,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true,\"mapping\":true,\"disc\":true,\"ingame\":true,\"ra\":true}");   // api 3: scripts, 4: mapping, 5: disc, ingame, 6: ra
+		send_line(i, "{\"ok\":true,\"api\":7,\"name\":\"phosphor-main\",\"pads\":true,\"scripts\":true,\"mapping\":true,\"disc\":true,\"ingame\":true,\"ra\":true,\"crt\":true}");   // api 3: scripts, 4: mapping, 5: disc, ingame, 6: ra, 7: crt
 	else if (!strncmp(line, "script ", 7)) script_start(i, line + 7);
 	else if (!strcmp(line, "status"))
 	{
@@ -773,6 +834,7 @@ static void command(int i, char *line)
 		pad_seq.next = 0;
 		send_line(i, "{\"ok\":true}");
 	}
+	else if (!strcmp(line, "crt") || !strncmp(line, "crt ", 4)) crt_command(i, line[3] ? line + 4 : NULL);
 	else if (!strncmp(line, "map_", 4)) map_command(i, line + 4);
 	else if (!strncmp(line, "card_read ", 10)) card_command(i, line + 10, 0);
 	else if (!strncmp(line, "card_write ", 11)) card_command(i, line + 11, 1);
@@ -911,7 +973,9 @@ void phosphor_poll(void)
 	// own menu does. Sent again after a core change (a new menu core starts black).
 	static int look = -1;
 	int want = (owner < 0 && !hold_until) ? 1 : 0;
-	if (ext_ver < 0) look = -1;
+	if (ext_ver < 0) { look = -1; crt.applied = 0; }
+	// Phosphor's CRT mode, set again on a menu core that just loaded (only Phosphor's has the native path)
+	if (is_menu() && !crt.applied && ext_present()) { crt_load(); if (crt.on || crt.loaded) crt_apply(); }
 	if (is_menu() && want != look && ext_present())
 	{
 		spi_uio_cmd_cont(PH_LOOK);
