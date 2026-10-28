@@ -3981,6 +3981,21 @@ static Imlib_Image load_bg()
 		fname = "menu.jpg";
 		if (!FileExists(fname)) fname = 0;
 	}
+	// Phosphor: the wallpaper chosen in Settings > Wallpapers for MiSTer's menu (a path under the SD card,
+	// in phosphor/config/osd_wallpaper), before menu.png and the random one from wallpapers/
+	{
+		static char chosen[512];
+		FILE *cf = fopen(getFullPath("phosphor/config/osd_wallpaper"), "r");
+		if (cf)
+		{
+			if (fgets(chosen, sizeof(chosen), cf))
+			{
+				chosen[strcspn(chosen, "\r\n")] = 0;
+				if (chosen[0] && !strstr(chosen, "..") && FileExists(chosen)) fname = chosen;
+			}
+			fclose(cf);
+		}
+	}
 
 	if (!fname)
 	{
