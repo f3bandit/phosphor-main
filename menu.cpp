@@ -9017,6 +9017,7 @@ static void set_text(const char *message, unsigned char code)
 
 void InfoMessage(const char *message, int timeout, const char *title)
 {
+	if (phosphor_osd_own()) return;               // Phosphor's in-game menu is in the OSD: no pop-up over it
 	if (menustate <= MENU_INFO)
 	{
 		if (menustate != MENU_INFO)
@@ -9037,18 +9038,22 @@ void InfoMessage(const char *message, int timeout, const char *title)
 /* Phosphor: its in-game menu as text in MiSTer's OSD, for a CRT (with vga_scaler=0 the analog port shows
    the core's own picture plus the OSD, never Linux's framebuffer). Shown like an info message, so the game
    keeps running behind it and the keys stay with Phosphor; lines split on '\n', the row sel inverted. */
-void phosphor_osd_menu(const char *title, const char *text, int sel)
+static int ph_osd;                                 // MENU_INFO is Phosphor's menu (not someone's pop-up)
+int phosphor_osd_own(void) { return ph_osd && menustate == MENU_INFO; }
+
+int phosphor_osd_menu(const char *title, const char *text, int sel)
 {
-	if (menustate > MENU_INFO) return;                 // MiSTer's own menu is open
+	if (menustate > MENU_INFO) return -1;              // MiSTer's own menu is open
 	int lines = 1;
 	for (const char *c = text; *c; c++) if (*c == '\n') lines++;
 	int want = lines <= 8 ? 8 : 16;                    // the in-game menu: the small OSD; a list: the tall one
-	if (menustate != MENU_INFO || want != OsdGetSize())
+	OsdSetTitle(title, 0);
+	if (!phosphor_osd_own() || want != OsdGetSize())   // (taking over a pop-up's window too: ours, full size)
 	{
 		OsdSetSize(want);
-		OsdSetTitle(title, 0);
 		OsdEnable(OSD_MSG);
 	}
+	ph_osd = 1;
 	char s[40];
 	int l = 0;
 	const char *p = text;
@@ -9067,13 +9072,15 @@ void phosphor_osd_menu(const char *title, const char *text, int sel)
 	menu_timer = GetTimer(30 * 60 * 1000);
 	menustate = MENU_INFO;
 	OsdUpdate();
+	return 0;
 }
 
-int phosphor_osd_menu_shown(void) { return menustate == MENU_INFO; }
+int phosphor_osd_menu_shown(void) { return phosphor_osd_own(); }
 
 void phosphor_osd_menu_off(void)
 {
-	if (menustate == MENU_INFO) MenuHide();
+	if (phosphor_osd_own()) MenuHide();
+	ph_osd = 0;
 }
 
 void MenuHide()
@@ -9089,6 +9096,7 @@ int menu_present()
 
 void Info(const char *message, int timeout, int width, int height, int frame)
 {
+	if (phosphor_osd_own()) return;               // Phosphor's in-game menu is in the OSD: no pop-up over it
 	if (menustate <= MENU_INFO)
 	{
 		OSD_PrintInfo(message, &width, &height, frame);
@@ -9110,6 +9118,7 @@ void Info(const char *message, int timeout, int width, int height, int frame)
 
 void InfoAligned(const char *message, int timeout, int align, int frame)
 {
+	if (phosphor_osd_own()) return;               // Phosphor's in-game menu is in the OSD: no pop-up over it
 	if (menustate <= MENU_INFO)
 	{
 		int width = 0, height = 0;
@@ -9131,6 +9140,7 @@ void InfoAligned(const char *message, int timeout, int align, int frame)
 
 void InfoAt(const char *message, int timeout, int y_pos, int frame)
 {
+	if (phosphor_osd_own()) return;               // Phosphor's in-game menu is in the OSD: no pop-up over it
 	if (menustate <= MENU_INFO)
 	{
 		int width = 0, height = 0;

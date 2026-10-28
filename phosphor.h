@@ -29,6 +29,7 @@ int phosphor_keep_main(const char *cfg_main);
 // while Phosphor's shell is starting (Main just started in the menu core), Main's file browser stays
 // closed instead of popping up first; 0 once the shell has the screen, gave it back, or 60 s passed
 int phosphor_hold_menu(void);
+int phosphor_ingame_text(void);         // Phosphor's in-game menu is OSD text (CRT mode): the pads go to it
 int phosphor_start(void);
 // Main is about to restart the system on purpose: heavy work that was running didn't lose power
 void phosphor_mark_clean(void);
