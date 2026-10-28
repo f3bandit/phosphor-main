@@ -9034,6 +9034,48 @@ void InfoMessage(const char *message, int timeout, const char *title)
 	}
 }
 
+/* Phosphor: its in-game menu as text in MiSTer's OSD, for a CRT (with vga_scaler=0 the analog port shows
+   the core's own picture plus the OSD, never Linux's framebuffer). Shown like an info message, so the game
+   keeps running behind it and the keys stay with Phosphor; lines split on '\n', the row sel inverted. */
+void phosphor_osd_menu(const char *title, const char *text, int sel)
+{
+	if (menustate > MENU_INFO) return;                 // MiSTer's own menu is open
+	int lines = 1;
+	for (const char *c = text; *c; c++) if (*c == '\n') lines++;
+	int want = lines <= 8 ? 8 : 16;                    // the in-game menu: the small OSD; a list: the tall one
+	if (menustate != MENU_INFO || want != OsdGetSize())
+	{
+		OsdSetSize(want);
+		OsdSetTitle(title, 0);
+		OsdEnable(OSD_MSG);
+	}
+	char s[40];
+	int l = 0;
+	const char *p = text;
+	while (l < OsdGetSize())
+	{
+		int n = 0;
+		while (*p && *p != '\n' && n < 30) s[n++] = *p++;
+		while (*p && *p != '\n') p++;            // (a longer line is cut off)
+		s[n] = 0;
+		OsdWrite(l, s, l == sel, 0);
+		l++;
+		if (!*p) break;
+		p++;
+	}
+	while (l < OsdGetSize()) OsdWrite(l++, "", 0, 0);
+	menu_timer = GetTimer(30 * 60 * 1000);
+	menustate = MENU_INFO;
+	OsdUpdate();
+}
+
+int phosphor_osd_menu_shown(void) { return menustate == MENU_INFO; }
+
+void phosphor_osd_menu_off(void)
+{
+	if (menustate == MENU_INFO) MenuHide();
+}
+
 void MenuHide()
 {
 	menustate = MENU_NONE1;
