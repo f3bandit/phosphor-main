@@ -24,7 +24,7 @@ static const char *got(int s) { for (int i = 0; i < 5; i++) phosphor_poll(); int
 int main() {
 	phosphor_poll();
 	int a = conn(), b = conn();
-	say(a, "hello"); CHECK(strstr(got(a), "\"api\":6") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true") && strstr(rb, "\"mapping\":true") && strstr(rb, "\"disc\":true") && strstr(rb, "\"ingame\":true") && strstr(rb, "\"ra\":true"), "hello");
+	say(a, "hello"); CHECK(strstr(got(a), "\"api\":7") && strstr(rb, "\"pads\":true") && strstr(rb, "\"scripts\":true") && strstr(rb, "\"mapping\":true") && strstr(rb, "\"disc\":true") && strstr(rb, "\"ingame\":true") && strstr(rb, "\"ra\":true") && strstr(rb, "\"crt\":true"), "hello");
 	say(a, "ra"); CHECK(strstr(got(a), "\"active\":false"), "ra: no RetroAchievements core, inactive");
 	say(a, "ra list"); CHECK(strstr(got(a), "\"achievements\":[]"), "ra list: empty without a game");
 	say(a, "status"); CHECK(strstr(got(a), "\"owner\":\"main\""), "status: Main owns the screen");
@@ -64,7 +64,7 @@ int main() {
 	CHECK(phosphor_filter_key(KEY_F12) == 0, "sheet on: press held back");
 	CHECK(phosphor_filter_key(KEY_F12 | UPSTROKE) == 0 && strstr(got(b), "menu_button"), "short press -> sheet event");
 	phosphor_filter_key(KEY_F12); usleep(800000); phosphor_filter_key(KEY_F12);
-	CHECK(phosphor_filter_key(KEY_F12 | UPSTROKE) == (KEY_F12 | UPSTROKE), "long press -> OSD");
+	CHECK(phosphor_filter_key(KEY_F12 | UPSTROKE) == 0 && strstr(got(b), "menu_button"), "long press -> the in-game menu too (no hold for the OSD since 0.27.42)");
 	g_osd = 1; CHECK(strstr(got(b), "\"osd\",\"open\":true"), "osd event");
 	g_osd = 0; g_menu = 1; strcpy(g_core, "MENU"); g_fb = 0; g_screen_req = -9; got(b);
 	CHECK(g_screen_req == 1, "back in the menu: Phosphor's screen again");
@@ -198,5 +198,10 @@ int main() {
 		say(c, "screenshot"); CHECK(strstr(got(c), "no game"), "screenshot in the menu: no");
 		g_menu = sv;
 	}
+	// MiSTer.ini main=: the Mains merged into Phosphor's are not followed, the others are
+	CHECK(phosphor_keep_main("MiSTer") && phosphor_keep_main("") && phosphor_keep_main("/media/fat/MiSTer"), "main=MiSTer: stay");
+	CHECK(phosphor_keep_main("MiSTer_Physical-CD") && phosphor_keep_main("/media/fat/MiSTer_Physical-CD"), "[A0CD-*] main=MiSTer_Physical-CD: stay (discs are in Phosphor's Main)");
+	CHECK(phosphor_keep_main("MiSTer_RA") && phosphor_keep_main("mister_ra"), "[RA_*] main=MiSTer_RA: stay (RetroAchievements are in Phosphor's Main)");
+	CHECK(!phosphor_keep_main("MiSTer_3S-ARM") && !phosphor_keep_main("MiSTer_Quake") && !phosphor_keep_main("Mister_duke3d"), "3S-ARM, Quake, Duke3D: their own Main");
 	printf("ALL PASSED\n");
 }
