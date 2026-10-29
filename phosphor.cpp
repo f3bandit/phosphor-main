@@ -1,5 +1,7 @@
 // Phosphor: a small local API so the Phosphor shell and phosphord can work with Main instead of
 // around it. Part of phosphor-main (a fork of MiSTer-devel/Main_MiSTer), GPL-3.0 like Main.
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
+// The front ports (the controller test and the memory card manager): f3bandit's idea and design.
 //
 // Unix socket /tmp/phosphor-main.sock (root only), one command per line, one JSON reply per line:
 //   hello                  {"ok":true,"api":7,"name":"phosphor-main","pads":true,"scripts":true,"mapping":true,

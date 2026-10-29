@@ -1,3 +1,4 @@
+// Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 // A stand-in Main for working on Phosphor on a PC: phosphor.cpp with the stubs (stubs.cpp) behind
 // it, serving the real socket API. FAKE_EXT=0 starts with the stock menu core; "launch" of a
 // file named menu_phosphor.rbf restarts it with the Phosphor one, like Main restarting on a core load.
