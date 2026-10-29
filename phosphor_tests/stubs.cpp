@@ -116,3 +116,10 @@ char *achievements_phosphor_list(void) { return strdup("{\"ok\":true,\"achieveme
 int g_shots = 0;
 void request_screenshot(char *, int) { g_shots++; }
 void Info(const char *, int, int, int, int) {}
+
+// the in-game menu as OSD text (CRT mode) and the core's status bits
+int g_osd_menu = 0;
+int phosphor_osd_menu(const char *, const char *, int) { g_osd_menu = 1; return 0; }
+void phosphor_osd_menu_off(void) { g_osd_menu = 0; }
+int phosphor_osd_menu_shown(void) { return g_osd_menu; }
+void user_io_status_set(const char *, uint32_t, int) {}

@@ -2,7 +2,7 @@
 // around it. Part of phosphor-main (a fork of MiSTer-devel/Main_MiSTer), GPL-3.0 like Main.
 //
 // Unix socket /tmp/phosphor-main.sock (root only), one command per line, one JSON reply per line:
-//   hello                  {"ok":true,"api":5,"name":"phosphor-main","pads":true,"scripts":true,"mapping":true,
+//   hello                  {"ok":true,"api":7,"name":"phosphor-main","pads":true,"scripts":true,"mapping":true,
 //                          "disc":true,"ingame":true}
 //   status                 core, menu core or not, OSD visible, framebuffer shown, who owns the screen
 //   script PATH            (the shell, owning the screen) run a script the way MiSTer's Scripts menu does:
@@ -1068,9 +1068,20 @@ int phosphor_hold_menu(void)
 	return 1;
 }
 
+// MiSTer.ini's main= for a core: 1 to stay in Phosphor's Main. The default (MiSTer) is Phosphor's Main
+// here. So are the Mains whose work is merged into it, which Update All's options add sections for:
+//   [A0CD-*] main=MiSTer_Physical-CD   the dock's CD drive (Main_MiSTer_Physical_Disc, merged)
+//   [RA_*]   main=MiSTer_RA            RetroAchievements (odelot's Main_MiSTer, merged)
+// Following those would leave Phosphor for the whole game (no in-game menu, no shell). Any other main=
+// (3S-ARM, Quake, Duke3D: cores that really need their own Main) is still followed.
 int phosphor_keep_main(const char *cfg_main)
 {
-	return !cfg_main || !*cfg_main || !strcasecmp(cfg_main, "MiSTer") || !strcasecmp(cfg_main, "/media/fat/MiSTer");
+	if (!cfg_main || !*cfg_main) return 1;
+	const char *b = strrchr(cfg_main, '/');
+	b = b ? b + 1 : cfg_main;
+	static const char *const ours[] = { "MiSTer", "MiSTer_Physical-CD", "MiSTer_RA" };
+	for (const char *o : ours) if (!strcasecmp(b, o)) return 1;
+	return 0;
 }
 
 int phosphor_installed(void)
