@@ -1,5 +1,6 @@
 #include "file_io.h"
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
@@ -1058,6 +1059,24 @@ uint64_t getFileSize(const char *name)
 	return st.st_size;
 }
 
+static bool phosphor_repair_drive(int x)
+{
+	// the drive Repair all drives uses now: its copy of Linux carries the drive's ID (phosphor/rescue/os.id,
+	// drive=<PARTUUID>), the same one Phosphor keeps in state/sdrescue.state. A drive that was the repair
+	// drive once (an old copy left on the NVMe drive) isn't
+	char p[96], want[64] = "", have[64] = "", l[128];
+	FILE *f = fopen("/media/fat/phosphor/state/sdrescue.state", "r");
+	if (!f) return false;
+	while (fgets(l, sizeof(l), f)) if (!strncmp(l, "partuuid=", 9)) { snprintf(want, sizeof(want), "%s", l + 9); want[strcspn(want, "\r\n")] = 0; }
+	fclose(f);
+	if (!want[0]) return false;
+	snprintf(p, sizeof(p), "/media/usb%d/phosphor/rescue/os.id", x);
+	if (!(f = fopen(p, "r"))) return false;
+	while (fgets(l, sizeof(l), f)) if (!strncmp(l, "drive=", 6)) { snprintf(have, sizeof(have), "%s", l + 6); have[strcspn(have, "\r\n")] = 0; }
+	fclose(f);
+	return !strcasecmp(want, have);
+}
+
 static int findPrefixDir(const char *prefix, bool no_prefix_check, char *dir, size_t dir_len)
 {
 	// Searches for the core's folder in the following order:
@@ -1075,8 +1094,11 @@ static int findPrefixDir(const char *prefix, bool no_prefix_check, char *dir, si
 	// no longer recommended; prefer <prefix>/<dir>.
 	static char temp_dir[1024];
 
-	// Usb<0..5>
+	// Usb<0..5>. Phosphor: a drive set up for Repair all drives (phosphor/rescue, or SS1 Tool's ss1tool/rescue)
+	// is never a games drive: an empty games/PSX left on the repair stick (usb0 when it's plugged in first)
+	// no longer hides the PlayStation games on the NVMe drive
 	for (int x = 0; x < 6; x++) {
+		if (phosphor_repair_drive(x)) continue;
 		if (no_prefix_check) {
 			snprintf(temp_dir, 1024, "%s%d/%s", "../usb", x, dir);
 			if (isPathDirectory(temp_dir)) {
