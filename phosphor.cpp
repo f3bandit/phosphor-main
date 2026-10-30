@@ -923,6 +923,25 @@ static void read_client(int i)
 // repeated like MiSTer's menu does). Called from input.cpp while the Linux framebuffer is up.
 static const char *pad_name(uint32_t m)
 {
+	// with the Linux framebuffer up (the shell's menu) input.cpp passes the menu buttons as MiSTer's OSD
+	// takes them: X as JOY_BTN4, Y as JOY_BTN3, Start as JOY_L2, Select as JOY_R2 (the A/B/X/Y/L/R/Start/
+	// Select of the controller's MiSTer mapping); named by what they are, Start and Select included
+	if (video_fb_state()) switch (m)
+	{
+	case JOY_UP: return "up";
+	case JOY_DOWN: return "down";
+	case JOY_LEFT: return "left";
+	case JOY_RIGHT: return "right";
+	case JOY_BTN1: return "a";
+	case JOY_BTN2: return "b";
+	case JOY_BTN4: return "x";
+	case JOY_BTN3: return "y";
+	case JOY_L: return "l";
+	case JOY_R: return "r";
+	case JOY_L2: return "start";
+	case JOY_R2: return "select";
+	default: return NULL;
+	}
 	switch (m)
 	{
 	case JOY_UP: return "up";
