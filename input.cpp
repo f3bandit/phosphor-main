@@ -1911,8 +1911,17 @@ static void phosphor_fill_sticks(int dev, int sub_dev)
 	if (!has(ABS_X) || !has(ABS_Y)) return;
 	m[SYS_AXIS1_X] = ABS_X | 0x20000;
 	m[SYS_AXIS1_Y] = ABS_Y | 0x20000;
-	if (has(ABS_RX) && has(ABS_RY)) { m[SYS_AXIS2_X] = ABS_RX | 0x20000; m[SYS_AXIS2_Y] = ABS_RY | 0x20000; }
-	else if (has(ABS_Z) && has(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
+	// a trigger rests at one end of its range, a stick in the middle: never a pair resting at an end as the
+	// right stick (TinyUSB's gamepad, MC BlueBridge: triggers on RX/RY, right stick on Z/RZ; held at one end
+	// as a stick they were presses that never let go, everywhere)
+	auto centred = [&](int c) -> bool {
+		struct input_absinfo ai;
+		if (ioctl(pool[sub_dev].fd, EVIOCGABS(c), &ai) < 0) return false;
+		int span = ai.maximum - ai.minimum;
+		return ai.value - ai.minimum >= span / 8 && ai.maximum - ai.value >= span / 8;
+	};
+	if (has(ABS_RX) && has(ABS_RY) && centred(ABS_RX) && centred(ABS_RY)) { m[SYS_AXIS2_X] = ABS_RX | 0x20000; m[SYS_AXIS2_Y] = ABS_RY | 0x20000; }
+	else if (has(ABS_Z) && has(ABS_RZ) && centred(ABS_Z) && centred(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
 	printf("phosphor: %04x:%04x map has no sticks: the controller's own axes\n", input[dev].vid, input[dev].pid);
 }
 
