@@ -1920,7 +1920,14 @@ static void phosphor_fill_sticks(int dev, int sub_dev)
 		int span = ai.maximum - ai.minimum;
 		return ai.value - ai.minimum >= span / 8 && ai.maximum - ai.value >= span / 8;
 	};
-	if (has(ABS_RX) && has(ABS_RY) && centred(ABS_RX) && centred(ABS_RY)) { m[SYS_AXIS2_X] = ABS_RX | 0x20000; m[SYS_AXIS2_Y] = ABS_RY | 0x20000; }
+	// MC BlueBridge (Raspberry Pi's 2e8a) in its MiSTer modes (one controller: b0xx, two: 10b3) always has that
+	// layout; its Generic HID (10b1) and X-Input (10b2) modes have the usual one
+	char nm[128] = "";
+	ioctl(pool[sub_dev].fd, EVIOCGNAME(sizeof(nm)), nm);
+	bool bluebridge = input[sub_dev].vid == 0x2e8a && strstr(nm, "BlueBridge") &&
+		(input[sub_dev].pid == 0x10b3 || (input[sub_dev].pid & 0xf000) == 0xb000);
+	if (bluebridge && has(ABS_Z) && has(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
+	else if (has(ABS_RX) && has(ABS_RY) && centred(ABS_RX) && centred(ABS_RY)) { m[SYS_AXIS2_X] = ABS_RX | 0x20000; m[SYS_AXIS2_Y] = ABS_RY | 0x20000; }
 	else if (has(ABS_Z) && has(ABS_RZ) && centred(ABS_Z) && centred(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
 	printf("phosphor: %04x:%04x map has no sticks: the controller's own axes\n", input[dev].vid, input[dev].pid);
 }
