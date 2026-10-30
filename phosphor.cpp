@@ -1081,6 +1081,17 @@ const char *phosphor_menu_core(void)
 	return (!stat(p, &st) && S_ISREG(st.st_mode) && st.st_size > 1000000) ? p : NULL;
 }
 
+// The SS1's Bluetooth button (the user button held 3 s): with Phosphor's screen up, Phosphor's own pairing
+// (Settings > Bluetooth) instead of MiSTer's BT Pairing OSD, which Phosphor's screen covers and whose Finish
+// the controller can't reach there (the buttons go to Phosphor). 1: the shell was told.
+int phosphor_bt_pair(void)
+{
+	if (!inited) ph_init();
+	if (owner < 0 || !is_menu() || !video_fb_state() || cl[owner].fd < 0) return 0;
+	send_line(owner, "{\"event\":\"bt_pair\"}");
+	return 1;
+}
+
 int phosphor_hold_menu(void)
 {
 	if (!inited) ph_init();
