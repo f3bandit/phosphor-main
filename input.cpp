@@ -1914,11 +1914,11 @@ static void phosphor_fill_sticks(int dev, int sub_dev)
 	// a trigger rests at one end of its range, a stick in the middle: never a pair resting at an end as the
 	// right stick (TinyUSB's gamepad, MC BlueBridge: triggers on RX/RY, right stick on Z/RZ; held at one end
 	// as a stick they were presses that never let go, everywhere)
-	auto centred = [&](int c) -> bool {
+	auto at_edge = [&](int c) -> bool {
 		struct input_absinfo ai;
 		if (ioctl(pool[sub_dev].fd, EVIOCGABS(c), &ai) < 0) return false;
 		int span = ai.maximum - ai.minimum;
-		return ai.value - ai.minimum >= span / 8 && ai.maximum - ai.value >= span / 8;
+		return ai.value - ai.minimum < span / 8 || ai.maximum - ai.value < span / 8;
 	};
 	// MC BlueBridge (Raspberry Pi's 2e8a) in its MiSTer modes (one controller: b0xx, two: 10b3) always has that
 	// layout; its Generic HID (10b1) and X-Input (10b2) modes have the usual one
@@ -1926,9 +1926,13 @@ static void phosphor_fill_sticks(int dev, int sub_dev)
 	ioctl(pool[sub_dev].fd, EVIOCGNAME(sizeof(nm)), nm);
 	bool bluebridge = input[sub_dev].vid == 0x2e8a && strstr(nm, "BlueBridge") &&
 		(input[sub_dev].pid == 0x10b3 || (input[sub_dev].pid & 0xf000) == 0xb000);
-	if (bluebridge && has(ABS_Z) && has(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
-	else if (has(ABS_RX) && has(ABS_RY) && centred(ABS_RX) && centred(ABS_RY)) { m[SYS_AXIS2_X] = ABS_RX | 0x20000; m[SYS_AXIS2_Y] = ABS_RY | 0x20000; }
-	else if (has(ABS_Z) && has(ABS_RZ) && centred(ABS_Z) && centred(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
+	// otherwise the swap only when RX/RY rest at an end and Z/RZ don't (as phosphord's ctrl.c): a stick held
+	// over as the map loads keeps the usual RX/RY
+	bool four = has(ABS_RX) && has(ABS_RY) && has(ABS_Z) && has(ABS_RZ);
+	bool swap = bluebridge || (four && (at_edge(ABS_RX) || at_edge(ABS_RY)) && !at_edge(ABS_Z) && !at_edge(ABS_RZ));
+	if (swap && has(ABS_Z) && has(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
+	else if (has(ABS_RX) && has(ABS_RY)) { m[SYS_AXIS2_X] = ABS_RX | 0x20000; m[SYS_AXIS2_Y] = ABS_RY | 0x20000; }
+	else if (has(ABS_Z) && has(ABS_RZ)) { m[SYS_AXIS2_X] = ABS_Z | 0x20000; m[SYS_AXIS2_Y] = ABS_RZ | 0x20000; }
 	printf("phosphor: %04x:%04x map has no sticks: the controller's own axes\n", input[dev].vid, input[dev].pid);
 }
 
