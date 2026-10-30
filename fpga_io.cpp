@@ -609,10 +609,23 @@ static void reboot_note(int cold, void *from)
 	fclose(f);
 }
 
+// Phosphor: Main's restarts (MiSTer's menu Reboot, a core that couldn't load, a core with its own settings,
+// the keyboard's reset keys) reset the hardware straight away: nothing unmounted, the SD card left "not
+// shut down safely", the dock's NVMe drive sometimes coming back stuck. Phosphor's safe stop first (the
+// drives read-only, the USB devices let go), as its own power window does; 25 s at most.
+static void phosphor_safe_stop(void)
+{
+	static const char *ps = "/media/fat/phosphor/phosphor.sh";
+	if (access(ps, X_OK)) return;
+	printf("Phosphor: safe stop before the restart\n");
+	if (system("timeout 25 /media/fat/phosphor/phosphor.sh safe-stop > /dev/null 2>&1") != 0) printf("Phosphor: safe stop didn't finish\n");
+}
+
 void reboot(int cold)
 {
 	reboot_note(cold, __builtin_return_address(0));
 	sync();
+	phosphor_safe_stop();
 	fpga_core_reset(1);
 
 	usleep(500000);
