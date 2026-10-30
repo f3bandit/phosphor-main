@@ -40,7 +40,12 @@ int main() {
 	usleep(500000); CHECK(strstr(got(a), "\"b\":\"up\",\"p\":2"), "pad: held up repeats");
 	CHECK(phosphor_pad(0x08, 0) == 1 && strstr(got(a), "\"b\":\"up\",\"p\":0"), "pad: up released");
 	usleep(400000); CHECK(!strstr(got(a), "\"p\":2"), "pad: no repeat after release");
-	CHECK(phosphor_pad(0x100, 1) == 1 && strstr(got(a), "\"b\":\"x\""), "pad: X goes too (MiSTer's terminal keys don't have it)");
+	// (with the framebuffer up input.cpp passes X as JOY_BTN4, Y as JOY_BTN3, Start as JOY_L2, Select as JOY_R2)
+	CHECK(phosphor_pad(0x80, 1) == 1 && strstr(got(a), "\"b\":\"x\""), "pad: X goes too (MiSTer's terminal keys don't have it)");
+	CHECK(phosphor_pad(0x80, 0) == 1 && phosphor_pad(0x40, 1) == 1 && strstr(got(a), "\"b\":\"y\""), "pad: Y (JOY_BTN3) is y, not select");
+	CHECK(phosphor_pad(0x40, 0) == 1 && phosphor_pad(0x1000, 1) == 1 && strstr(got(a), "\"b\":\"start\""), "pad: Start (JOY_L2) is start");
+	CHECK(phosphor_pad(0x1000, 0) == 1 && phosphor_pad(0x2000, 1) == 1 && strstr(got(a), "\"b\":\"select\""), "pad: Select (JOY_R2) is select");
+	phosphor_pad(0x2000, 0); got(a);
 	phosphor_pad(0x100, 0); got(a);
 	// scripts, the way MiSTer's Scripts menu runs them
 	say(b, "script /media/phtest/t.sh"); CHECK(strstr(got(b), "take the screen first"), "script: only the screen's owner");
