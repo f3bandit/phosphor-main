@@ -693,6 +693,12 @@ void app_restart(const char *path, const char *xml, const char *exe)
 	offload_stop();
 
 	const char *appname = exe ? exe : getappname();
+#ifdef PH_3SARM
+	// 3S-ARM's Main loading another core (Phosphor's Quit, MiSTer's menu, a core from the OSD): Phosphor's
+	// Main takes over, and switches back here if the core is 3S-ARM again. Restarting into this Main would
+	// run 3S-ARM's wrapper with the menu core (a screen of its own before Phosphor's).
+	if (!exe && !access("/media/fat/phosphor/bin/MiSTer_phosphor", X_OK)) appname = "/media/fat/phosphor/bin/MiSTer_phosphor";
+#endif
 	printf("restarting to %s\n", appname);
 
 	//a cleaner way to re-start
