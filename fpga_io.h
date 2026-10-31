@@ -35,9 +35,9 @@ int fpga_get_fio_size();
 int fpga_get_io_version();
 
 int fpga_load_rbf(const char *name, const char *cfg = 0, const char *xml = 0);
-#ifdef PH_3SARM
+#ifdef PH_PORT
 int fpga_load_rbf_no_restart(const char *name);
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 
 void reboot(int cold);
 void app_restart(const char *path, const char *xml = 0, const char *exe = 0);

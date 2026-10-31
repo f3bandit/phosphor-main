@@ -86,8 +86,15 @@ static int brd_y = 0;
 
 static int menu_bg = 0;
 static int menu_bgn = 0;
-#ifdef PH_3SARM
-// 3S-ARM's Main (kimchiman52's 3s-mister-arm wrapper, built from Phosphor's Main): the core's own 31.15 MHz
+// Sonic Mania's game reads the pads itself (SDL2): its Main never grabs them when the framebuffer switches
+#ifdef PH_SONIC
+extern "C" int g_wrapper_aspect_ratio;   // the wrapper's: 0 the 4:3 core, 1 the widescreen one
+#define PH_FB_GRAB 0
+#else
+#define PH_FB_GRAB 1
+#endif
+#ifdef PH_PORT
+// A port's Main (kimchiman52's 3S-ARM and Sonic Mania wrappers, built from Phosphor's Main): the core's own
 // video clock for the YC encoder, and 384-wide analog modes for its CRT output
 static bool native_video_enabled = false;
 #endif
@@ -171,7 +178,7 @@ vmode_t tvmodes[] =
 	{{ 640, 16, 96, 48, 480,  8, 4, 33 }, 25.175, 0, 0 }, //NTSC 31K
 	{{ 640, 30, 60, 70, 288,  6, 4, 14 }, 12.587, 0, 0 }, //PAL 15K
 	{{ 640, 16, 96, 48, 576,  2, 4, 42 }, 25.175, 0, 0 }, //PAL 31K
-#ifdef PH_3SARM
+#ifdef PH_PORT
 	{{ 384, 18, 36, 42, 240,  6, 4, 14 },  7.552446593, 0, 0 }, //NTSC 15K 384-native (fsc=3.579545×480/227.5)
 	{{ 384, 18, 36, 42, 288,  6, 4, 14 },  7.5,         0, 0 }, //PAL  15K 384-native (line_rate=15625 Hz)
 	{{ 768, 36, 72, 84, 240,  6, 4, 14 }, 15.104893187, 0, 0 }, //NTSC 15K 768-wide YC encode (exact 2x of 384-native active width)
@@ -2642,7 +2649,7 @@ static int should_auto_enable_direct_video()
 	return 0;
 }
 
-#ifdef PH_3SARM
+#ifdef PH_PORT
 static bool has_explicit_video_mode_override()
 {
 	return strlen(cfg.video_conf) || strlen(cfg.video_conf_pal) || strlen(cfg.video_conf_ntsc);
@@ -2719,7 +2726,7 @@ static void video_mode_load(bool keep_direct_video_auto = false)
 		vmode_pal = 0;
 		vmode_ntsc = 0;
 	}
-#ifdef PH_3SARM
+#ifdef PH_PORT
 	else if (!has_explicit_video_mode_override() && !cfg.vga_scaler &&
 	         ((cfg.vga_mode_int == 1) || (cfg.vga_mode_int == 2) || (cfg.vga_mode_int == 3)) && cfg.forced_scandoubler)
 	{
@@ -3353,7 +3360,7 @@ static void set_yc_mode()
 			PHASE_INC = ((int64_t)((CLK_REF / CLK_VIDEO) *
 				1099511627776LL)) & 0xFFFFFFFFFFLL;
 		}
-#ifdef PH_3SARM
+#ifdef PH_PORT
 		{
 			// 3S-ARM: its native video runs the YC encoder at the core's own PLL (50 * 81/5 / 26 =
 			// 31.1538 MHz); the HPS framebuffer in the 768-wide YC mode at the output clock. With no
@@ -3361,7 +3368,12 @@ static void set_yc_mode()
 			const bool fb_auto = v_cur.Fpix > 0.0 && get_vga_fb() && should_use_native_analog_yc_output_mode();
 			if (native_video_enabled || fb_auto)
 			{
+#ifdef PH_SONIC
+				// Sonic Mania: the PLL depends on which core (4:3 or widescreen) the wrapper loaded
+				CLK_VIDEO = native_video_enabled ? (g_wrapper_aspect_ratio == 1 ? (1010.0 / 29.0) : 25.6) : v_cur.Fpix;
+#else
 				CLK_VIDEO = native_video_enabled ? (405.0 / 13.0) : v_cur.Fpix;
+#endif
 				if (!current_video_info.vtime)
 				{
 					int ht = (int)(v_cur.param.hact + v_cur.param.hfp + v_cur.param.hs + v_cur.param.hbp);
@@ -3738,14 +3750,14 @@ void video_fb_enable(int enable, int n)
 				}
 				else
 				{
-					input_switch(1);
+					input_switch(PH_FB_GRAB);
 				}
 			}
 			else
 			{
 				printf("Switch to core frame buffer\n");
 				spi_w(0); // enable flag
-				input_switch(1);
+				input_switch(PH_FB_GRAB);
 			}
 
 			fb_enabled = enable;
@@ -3753,19 +3765,19 @@ void video_fb_enable(int enable, int n)
 		else
 		{
 			printf("Core doesn't support HPS frame buffer\n");
-			input_switch(1);
+			input_switch(PH_FB_GRAB);
 		}
 
 		DisableIO();
 		if (cfg.direct_video) set_vga_fb(enable);
 		if (is_menu()) user_io_status_set("[8:5]", (fb_enabled && !fb_num) ? 0xB : 0);
-#ifdef PH_3SARM
-		else if (is_menu_like_fb()) user_io_status_set("[8:5]", (fb_enabled && !fb_num) ? 0x160 : 0);   // 3S-ARM's core (an older menu core)
+#ifdef PH_PORT
+		else if (is_menu_like_fb()) user_io_status_set("[8:5]", (fb_enabled && !fb_num) ? 0x160 : 0);   // a port's core (an older menu core)
 #endif
 	}
 }
 
-#ifdef PH_3SARM
+#ifdef PH_PORT
 void video_fb_clear(uint32_t color, int n)
 {
 	if (!fb_base) return;
@@ -3793,7 +3805,7 @@ static void video_fb_config()
 {
 	PROFILE_FUNCTION();
 
-#ifdef PH_3SARM
+#ifdef PH_PORT
 	if (should_use_native_analog_yc_output_mode())
 	{
 		// the framebuffer at the game's 384 width; MiSTer's scaler doubles it into the 768-wide YC raster

@@ -186,7 +186,7 @@ void user_io_set_core_name(const char *name)
 	printf("Core name set to \"%s\"\n", core_name);
 }
 
-#ifdef PH_3SARM
+#ifdef PH_PORT
 // 3S-ARM's Main seeds the core's names before cfg and video start, without the whole user_io_init
 void user_io_wrapper_set_core_names(const char *core, const char *orig)
 {
@@ -239,11 +239,11 @@ char is_menu()
 	return (is_menu_type == 1);
 }
 
-// the HPS framebuffer behaves as in the menu core: the menu, and 3S-ARM (its core is an older menu core)
+// the HPS framebuffer behaves as in the menu core: the menu, and a port's core (3S-ARM, Sonic Mania: older menu cores)
 char is_menu_like_fb()
 {
-#ifdef PH_3SARM
-	return is_menu() || !strcasecmp(orig_name, "3S-ARM");
+#ifdef PH_PORT
+	return is_menu() || !strcasecmp(orig_name, PH_PORT_CORE);
 #else
 	return is_menu();
 #endif
@@ -667,7 +667,7 @@ uint32_t user_io_hd_mask(const char *opt)
 	return start;
 }
 
-#ifdef PH_3SARM
+#ifdef PH_PORT
 // HandleUI pulses T/R options (1 then 0) within one call: the wrapper takes them from here
 static volatile uint32_t g_status_trigger_flags = 0;
 uint32_t user_io_status_trigger_take()
@@ -683,7 +683,7 @@ void user_io_status_set(const char *opt, uint32_t value, int ex)
 	int start, end;
 	int size = user_io_status_bits(opt, &start, &end, ex);
 	if (!size) return;
-#ifdef PH_3SARM
+#ifdef PH_PORT
 	if (value == 1 && size == 1) g_status_trigger_flags |= (1u << start);   // a T/R pulse, kept for the wrapper
 #endif
 
@@ -1623,7 +1623,13 @@ void user_io_init(const char *path, const char *xml)
 	}
 
 	const char *main = getFullPath(cfg.main);
-	if (const char *pm = phosphor_port_main(cfg.main)) main = pm;   // Phosphor: its own build of a port's Main
+	{
+		// Phosphor: its own build of a port's Main (3S-ARM, Sonic Mania) for the versions it was made for
+		static char rbf_full[1024];
+		if (path && path[0] == '/') snprintf(rbf_full, sizeof(rbf_full), "%s", path);
+		else snprintf(rbf_full, sizeof(rbf_full), "%s/%s", getRootDir(), path ? path : "");
+		if (const char *pm = phosphor_port_main(cfg.main, rbf_full)) main = pm;
+	}
 	// Phosphor: MiSTer.ini's default main=MiSTer means "the usual Main", and Phosphor's Main is that
 	// here: stay. A main= set on purpose (a core that needs another Main) is still followed.
 	if (strcasecmp(main, getappname()) && FileExists(main) && !phosphor_keep_main(cfg.main))

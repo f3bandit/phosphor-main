@@ -1123,11 +1123,22 @@ int phosphor_keep_main(const char *cfg_main)
 // runs Phosphor's build in phosphor/bin (today's Main, Phosphor's API), out of Update All's reach. Only with
 // the game and core it was built and tested with: if Update All brings a newer game, the port's own Main runs
 // it as before (it matches) and the log says Phosphor's build needs updating.
-static const struct { const char *main, *ours, *file[2], *md5[2]; } port_mains[] = {
-	{ "MiSTer_3S-ARM", "/media/fat/phosphor/bin/MiSTer_3S-ARM",
-	  { "/media/fat/games/3s-arm/bin/3s-arm", "/media/fat/_Other/3S-ARM.rbf" },
-	  { "8d87e22a8330244802193da042edebc3", "aa872f87f1b22edf3f7d02c5d7f35c85" } },   // release v20260417
+// file[0] is the game; the core is checked by the one being loaded (path), against md5[1] ("a|b": either)
+static const struct { const char *main, *ours, *game, *md5_game, *md5_core; } port_mains[] = {
+	{ "MiSTer_3S-ARM", "/media/fat/phosphor/bin/MiSTer_3S-ARM", "/media/fat/games/3s-arm/bin/3s-arm",
+	  "8d87e22a8330244802193da042edebc3", "aa872f87f1b22edf3f7d02c5d7f35c85" },                 // release v20260417
+	{ "MiSTer_SonicMania", "/media/fat/phosphor/bin/MiSTer_SonicMania", "/media/fat/games/sonic-mania/bin/RSDKv5U",
+	  "4896946334792d8106313100f9368fe6", "5209b7838f5919294e75957c897d2ed5|5422aa6fdd663524c8377d63190ee296" },   // release 0.3.1 (16:9, 4:3)
 };
+
+static int file_md5_is(const char *path, const char *want);
+static int file_md5_any(const char *path, const char *list)
+{
+	char buf[200];
+	snprintf(buf, sizeof(buf), "%s", list);
+	for (char *t = strtok(buf, "|"); t; t = strtok(NULL, "|")) if (file_md5_is(path, t)) return 1;
+	return 0;
+}
 
 static int file_md5_is(const char *path, const char *want)
 {
@@ -1146,7 +1157,7 @@ static int file_md5_is(const char *path, const char *want)
 	return !strcasecmp(hex, want);
 }
 
-const char *phosphor_port_main(const char *cfg_main)
+const char *phosphor_port_main(const char *cfg_main, const char *core_path)
 {
 	if (!cfg_main || !*cfg_main) return NULL;
 	const char *b = strrchr(cfg_main, '/');
@@ -1155,17 +1166,19 @@ const char *phosphor_port_main(const char *cfg_main)
 	{
 		if (strcasecmp(b, p.main)) continue;
 		if (access(p.ours, X_OK)) return NULL;
+		const char *file[2] = { p.game, core_path && *core_path ? core_path : NULL };
+		const char *md5[2] = { p.md5_game, p.md5_core };
 		for (int i = 0; i < 2; i++)
-			if (!file_md5_is(p.file[i], p.md5[i]))
+			if (file[i] && !file_md5_any(file[i], md5[i]))
 			{
-				printf("Phosphor: %s isn't the version its Main was built for: %s runs it\n", p.file[i], p.main);
+				printf("Phosphor: %s isn't the version its Main was built for: %s runs it\n", file[i], p.main);
 				FILE *l = fopen("/media/fat/phosphor/logs/port-mains.log", "a");
 				if (l)
 				{
 					time_t t = time(NULL);
 					char ts[32];
 					strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&t));
-					fprintf(l, "%s  %s changed (an update?): Phosphor's %s needs rebuilding; the game's own Main ran it\n", ts, p.file[i], p.main);
+					fprintf(l, "%s  %s changed (an update?): Phosphor's %s needs rebuilding; the game's own Main ran it\n", ts, file[i], p.main);
 					fclose(l);
 				}
 				return NULL;

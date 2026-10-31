@@ -431,7 +431,7 @@ static int make_env(const char *name, const char *cfg)
 	return 0;
 }
 
-#ifdef PH_3SARM
+#ifdef PH_PORT
 static int fpga_load_rbf_(const char *name, const char *cfg, const char *xml, int restart);
 // 3S-ARM's Main: the menu core loaded without restarting Main (it execs Phosphor's Main itself after)
 int fpga_load_rbf_no_restart(const char *name) { return fpga_load_rbf_(name, 0, 0, 0); }
@@ -523,7 +523,7 @@ int fpga_load_rbf(const char *name, const char *cfg, const char *xml)
 	}
 	close(rbf);
 
-#ifdef PH_3SARM
+#ifdef PH_PORT
 	if (!restart) return ret;
 #endif
 	app_restart(!strcasecmp(name, "menu.rbf") ? "menu.rbf" : path, xml);
@@ -677,7 +677,7 @@ char *getappname()
 void app_restart(const char *path, const char *xml, const char *exe)
 {
 	gameport_stop();                 // Phosphor: a game port's game stopped before the next core (gameport.cpp)
-#ifdef PH_3SARM
+#ifdef PH_PORT
 	{
 		extern volatile sig_atomic_t g_child_pid;    // 3S-ARM's game: stopped before Main goes
 		pid_t child = (pid_t)g_child_pid;
@@ -693,7 +693,7 @@ void app_restart(const char *path, const char *xml, const char *exe)
 	offload_stop();
 
 	const char *appname = exe ? exe : getappname();
-#ifdef PH_3SARM
+#ifdef PH_PORT
 	// 3S-ARM's Main loading another core (Phosphor's Quit, MiSTer's menu, a core from the OSD): Phosphor's
 	// Main takes over, and switches back here if the core is 3S-ARM again. Restarting into this Main would
 	// run 3S-ARM's wrapper with the menu core (a screen of its own before Phosphor's).
