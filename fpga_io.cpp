@@ -443,6 +443,8 @@ int fpga_load_rbf(const char *name, const char *cfg, const char *xml)
 #endif
 {
 	OsdDisable();
+	gameport_stop();                 // Phosphor: a game port's game, a hybrid core's engine stopped before the
+	hybrid_stop();                   // fabric is reset and reprogrammed (one touching it then can wedge it)
 	static char path[1024];
 	int ret = 0;
 
@@ -682,9 +684,34 @@ void app_restart(const char *path, const char *xml, const char *exe)
 	hybrid_stop();                   // Phosphor: and a hybrid core's launcher (hybrid.cpp)
 #ifdef PH_PORT
 	{
-		extern volatile sig_atomic_t g_child_pid;    // 3S-ARM's game: stopped before Main goes
+		extern volatile sig_atomic_t g_child_pid;    // the port's game: stopped before Main goes
 		pid_t child = (pid_t)g_child_pid;
-		if (child > 0) { kill(child, SIGTERM); waitpid(child, NULL, 0); }
+		if (child > 0)
+		{
+			kill(child, SIGTERM);
+			int gone = 0;
+			for (int i = 0; i < 100 && !gone; i++)  // its own teardown: up to 1 s, then it's stopped
+			{
+				if (waitpid(child, NULL, WNOHANG) == child) gone = 1;
+				else usleep(10000);
+			}
+			if (!gone)
+			{
+				kill(child, SIGKILL);
+				for (int i = 0; i < 200; i++) { if (waitpid(child, NULL, WNOHANG) == child) break; usleep(10000); }
+			}
+		}
+		// the ARM clock back to stock (the wrapper's own reset after the game is skipped on this path; the
+		// OSD's Overclock would otherwise stay on): min before max, as the kernel wants
+		static const char *const clk[][2] = {
+			{ "/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq", "800000" },
+			{ "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq", "800000" },
+			{ "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "ondemand" } };
+		for (auto &c : clk)
+		{
+			int fd = open(c[0], O_WRONLY);
+			if (fd >= 0) { if (write(fd, c[1], strlen(c[1])) < 0) {} close(fd); }
+		}
 	}
 #endif
 	sync();
