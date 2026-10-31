@@ -61,15 +61,18 @@ struct port_t
 	const char *proc;             // the game's process name
 	int quake_buttons;            // the core's J1 has 6 buttons (Quake): Select and Start at bits 8 and 9
 	int duke_cfg;                 // duke3d.cfg kept at the core's 320x200
+	const char *credit;           // who made the port, and what it's built on (shown by Phosphor)
 };
 
 static const port_t ports[] = {
 	{ "Quake", { "MiSTer_Quake", "QUAKE", NULL }, { "MiSTer_Quake", NULL }, "games/quake",
 	  { "id1/PAK0.PAK", NULL }, "id1", "PAK1.PAK (the full game) is optional, next to it.",
-	  "bin/quake-mister", "_Other/Quake.rbf", "QUAKE", "/dev/shm/quake-mister-joy", "quake-mister", 1, 0 },
+	  "bin/quake-mister", "_Other/Quake.rbf", "QUAKE", "/dev/shm/quake-mister-joy", "quake-mister", 1, 0,
+	  "MiSTer port by neofreno (github.com/neofreno/mister_quake), on TyrQuake and id Software's GPL Quake source, after kimchiman52's ARM ports" },
 	{ "Duke Nukem 3D", { "duke3d", "DUKE3D", NULL }, { "Mister_duke3d", NULL }, "games/DUKE3D",
 	  { "duke3d.grp", NULL }, "", "From your own copy of the game (the shareware DUKE3D.GRP works too).",
-	  "bin/duke3d-mister", "_Other/DUKE3D.rbf", "DN3D", "/dev/shm/duke3d-mister-joy", "duke3d-mister", 0, 1 },
+	  "bin/duke3d-mister", "_Other/DUKE3D.rbf", "DN3D", "/dev/shm/duke3d-mister-joy", "duke3d-mister", 0, 1,
+	  "MiSTer port by neofreno (github.com/neofreno/mister_duke3d), on 3D Realms' GPL Duke Nukem 3D source, after kimchiman52's ARM ports" },
 };
 #define NPORTS ((int)(sizeof(ports) / sizeof(ports[0])))
 
@@ -194,6 +197,7 @@ static void note_and_leave(const char *why)
 		char lg[PATH_MAX];
 		snprintf(lg, sizeof(lg), "%s/logs/last-run.log", port->dir);
 		json_str(f, "log", lg, 1);
+		json_str(f, "credit", port->credit, 1);
 		json_str(f, "rbf", rbf, 0);
 		fputs("}\n", f);
 		fclose(f);
@@ -613,6 +617,7 @@ int gameport_begin(const char *rbf_path)
 	snprintf(lp, sizeof(lp), "%s/phosphor-port.log", logs);
 	logf = fopen(lp, "w");
 	plog("%s (core %s, %s)", port->title, name2 ? name2 : "?", rbf);
+	plog("%s", port->credit);
 	unlink(NOTE_PATH);
 
 	char p[PATH_MAX];
@@ -631,7 +636,7 @@ int gameport_begin(const char *rbf_path)
 	clock_up();
 	shm_open_();
 	pads_scan();
-	rescan_at = GetTimer(5000);
+	rescan_at = GetTimer(1000);
 	start_at = GetTimer(2000);                   // the core settles first (as the ports' Mains waited)
 	return 1;
 }
@@ -649,13 +654,17 @@ void gameport_poll(void)
 	}
 	if (child <= 0) return;
 
-	pads_feed();
+	// the pads to the game at 500 Hz (it reads them once a frame): reading them on every pass of Main's
+	// loop kept a core busy with ioctls
+	static unsigned long feed_at;
+	if (CheckTimer(feed_at)) { feed_at = GetTimer(2); pads_feed(); }
 	if (CheckTimer(rescan_at))
 	{
-		rescan_at = GetTimer(5000);
-		int n = 0;
-		for (int i = 0; i < NPAD; i++) n += pad_fd[i] >= 0;
-		if (n < NPAD) pads_scan();               // a pad plugged in since
+		rescan_at = GetTimer(1000);
+		static unsigned long seen;
+		struct stat st;
+		unsigned long now = !stat("/dev/input", &st) ? (unsigned long)st.st_mtime : 0;
+		if (now != seen) { seen = now; pads_scan(); }   // a pad plugged in or gone since
 	}
 
 	// the core's Restart (T[22]): the trigger, or the status bit's rising edge if the pulse was missed
