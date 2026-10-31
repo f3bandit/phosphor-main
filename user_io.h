@@ -188,6 +188,7 @@ uint32_t user_io_status_mask(const char *opt);
 uint32_t user_io_hd_mask(const char *opt);
 uint32_t user_io_status_get(const char *opt, int ex = 0);
 void user_io_status_set(const char *opt, uint32_t value, int ex = 0);
+uint32_t user_io_status_trigger_take();                                 // (3S-ARM's Main)
 int user_io_status_save(const char *filename);
 void user_io_status_reset();
 
@@ -196,6 +197,7 @@ void user_io_write_gameid(const char *filename, uint32_t crc32_val = 0, const ch
 int  user_io_file_mount(const char *name, unsigned char index = 0, char pre = 0, int pre_size = 0, int image = 0);
 void user_io_bufferinvalidate(unsigned char index);
 char *user_io_make_filepath(const char *path, const char *filename);
+void user_io_wrapper_set_core_names(const char *core_name, const char *orig_name);   // (3S-ARM's Main)
 char *user_io_get_core_name(int orig = 0);
 char *user_io_get_core_name2();
 char *user_io_get_core_path(const char *suffix = NULL, int recheck = 0);
@@ -276,6 +278,7 @@ char is_minimig();
 char is_next();
 char is_falcon();
 char is_menu();
+char is_menu_like_fb();
 char is_x86();
 char is_snes();
 char is_sgb();

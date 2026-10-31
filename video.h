@@ -67,6 +67,9 @@ void  video_mode_adjust(bool force = false);
 int   hasAPI1_5();
 
 void video_fb_enable(int enable, int n = 0);
+void video_fb_clear(uint32_t color = 0, int n = 0);   // (3S-ARM's Main)
+void video_refresh_yc_mode();                          // (3S-ARM's Main)
+void video_set_native_video_enabled(bool enabled);     // (3S-ARM's Main)
 int video_fb_state();
 void video_fb_console();     // Phosphor: back to MiSTer's terminal framebuffer mode (big font at 1080p)
 void video_fb_console_done(); // Phosphor: the script finished: the terminal's usual font

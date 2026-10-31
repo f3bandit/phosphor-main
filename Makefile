@@ -108,6 +108,14 @@ ifeq ($(PROFILING),1)
 	DFLAGS += -DPROFILING
 endif
 
+# Phosphor: a game port's own Main from the same source (make PORT=3s-arm -> bin-3s-arm/MiSTer_3S-ARM)
+ifeq ($(PORT),3s-arm)
+	BUILDDIR = bin-3s-arm
+	PRJ = MiSTer_3S-ARM
+	CPP_SRC := $(filter-out main.cpp,$(CPP_SRC)) $(wildcard ports/3s-arm/*.cpp)
+	DFLAGS += -DPH_3SARM -Iports/3s-arm
+endif
+
 $(BUILDDIR)/$(PRJ): $(OBJ)
 	$(Q)$(info $@)
 	$(Q)$(CC) -o $@ $+ $(LFLAGS)
