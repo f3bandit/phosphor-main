@@ -2875,6 +2875,7 @@ void HandleUI(void)
 									if (is_pcfx() && !ex && bit == PCFX_BIT_NEW_CARD) pcfx_new_card();
 									if (is_pcfx() && !ex && bit == PCFX_BIT_EJECT_CARD) pcfx_eject_card();
 
+									user_io_status_trigger_mark(opt, ex);   // (the pulse below is over before anyone else sees it)
 									user_io_status_set(opt, 1, ex);
 									if (is_n64() && !ex && !strcmp(opt, "[41]")) n64_save_dd_disk();
 									user_io_status_set(opt, 0, ex);

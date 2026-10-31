@@ -50,6 +50,7 @@ static struct
 
 static int decided, armed, prev_bit;
 static pid_t child = -1;
+static pid_t pgid = -1;                            // the launcher's group: what it started, after it exits too
 static int restarting;                  // 1: SIGTERM sent, 2: SIGKILL sent
 static unsigned long restart_at;
 
@@ -203,13 +204,17 @@ static void spawn(void)
 		_exit(127);
 	}
 	child = pid;
+	pgid = pid;                                        // (setsid: its group is its pid)
 	hlog("core %s: started %s (pid %d)", user_io_get_core_name(), ent.launcher, (int)pid);
 }
 
 static void signal_group(int sig)
 {
-	if (child > 0 && kill(-child, sig)) kill(child, sig);
+	if (pgid > 0) kill(-pgid, sig);
+	if (child > 0) kill(child, sig);
 }
+static int group_alive(void) { return pgid > 0 && (kill(-pgid, 0) == 0 || errno == EPERM); }
+static void reap(void) { if (child > 0 && waitpid(child, NULL, WNOHANG) == child) child = -1; }
 
 void hybrid_poll(void)
 {
@@ -229,6 +234,7 @@ void hybrid_poll(void)
 			char opt[8];
 			snprintf(opt, sizeof(opt), "[%d]", ent.reset_bit);
 			prev_bit = user_io_status_get(opt) & 1;
+			user_io_status_trigger_take_bit(ent.reset_bit);   // (a pulse from before this core isn't its Reset)
 			hlog("the OSD's Reset (bit %d) restarts it", ent.reset_bit);
 		}
 		return;
@@ -248,12 +254,12 @@ void hybrid_poll(void)
 	char opt[8];
 	snprintf(opt, sizeof(opt), "[%d]", ent.reset_bit);
 	int bit = user_io_status_get(opt) & 1;
-	int pressed = bit && !prev_bit;
+	int pressed = user_io_status_trigger_take_bit(ent.reset_bit) || (bit && !prev_bit);
 	prev_bit = bit;
 	if (!restarting)
 	{
 		if (!pressed) return;
-		if (child > 0)
+		if (child > 0 || group_alive())
 		{
 			hlog("OSD Reset: stopping the launcher");
 			signal_group(SIGTERM);
@@ -263,7 +269,7 @@ void hybrid_poll(void)
 		}
 		restarting = 3;                                // nothing running: start it again now
 	}
-	if (restarting == 1 && child > 0)
+	if (restarting == 1 && (child > 0 || group_alive()))
 	{
 		if (!CheckTimer(restart_at)) return;
 		hlog("OSD Reset: the launcher didn't stop, SIGKILL");
@@ -272,7 +278,14 @@ void hybrid_poll(void)
 		restart_at = GetTimer(2000);
 		return;
 	}
-	if (restarting == 2 && child > 0 && !CheckTimer(restart_at)) return;
+	reap();
+	if (restarting == 2 && group_alive() && !CheckTimer(restart_at)) return;
+	if (group_alive())
+	{
+		hlog("OSD Reset: the old launcher is still there (stuck): not starting a second one");
+		restarting = 0;
+		return;
+	}
 	for (int i = 0; i < ent.nclear; i++)
 		if (unlink(ent.clear[i]) && (errno == EISDIR || errno == EPERM)) rmdir(ent.clear[i]);
 	restarting = 0;
@@ -282,17 +295,20 @@ void hybrid_poll(void)
 
 void hybrid_stop(void)
 {
-	if (child <= 0) return;
+	reap();
+	if (child <= 0 && !group_alive()) { pgid = -1; return; }
 	hlog("stopping the launcher (another core)");
 	signal_group(SIGTERM);
 	for (int i = 0; i < 100; i++)                    // its own teardown: up to 1 s
 	{
-		if (waitpid(child, NULL, WNOHANG) == child) { child = -1; return; }
+		reap();
+		if (child <= 0 && !group_alive()) { pgid = -1; return; }
 		usleep(10000);
 	}
-	signal_group(SIGKILL);
-	waitpid(child, NULL, 0);
+	signal_group(SIGKILL);                           // what's left of it, the engine it started included
+	for (int i = 0; i < 200 && child > 0; i++) { reap(); usleep(10000); }   // (not forever: one stuck in the kernel)
 	child = -1;
+	pgid = -1;
 }
 
 int hybrid_main(const char *main_name)

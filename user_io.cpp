@@ -667,8 +667,9 @@ uint32_t user_io_hd_mask(const char *opt)
 	return start;
 }
 
-#ifdef PH_PORT
-// HandleUI pulses T/R options (1 then 0) within one call: the wrapper takes them from here
+// HandleUI pulses T/R options (1 then 0) within one call, so the status can't show them afterwards: they're
+// marked here (the menu's T/R site, and in the port builds every 1-bit pulse) for whoever runs the core's
+// software side (the game port wrappers, gameport.cpp's Restart, hybrid.cpp's OSD Reset) to take
 static volatile uint32_t g_status_trigger_flags = 0;
 uint32_t user_io_status_trigger_take()
 {
@@ -676,7 +677,20 @@ uint32_t user_io_status_trigger_take()
 	g_status_trigger_flags = 0;
 	return f;
 }
-#endif
+int user_io_status_trigger_take_bit(int bit)
+{
+	if (bit < 0 || bit > 31) return 0;
+	uint32_t m = 1u << bit;
+	int got = (g_status_trigger_flags & m) != 0;
+	g_status_trigger_flags &= ~m;
+	return got;
+}
+void user_io_status_trigger_mark(const char *opt, int ex)
+{
+	int start;
+	int size = user_io_status_bits(opt, &start, 0, ex);
+	if (size == 1 && !ex && start >= 0 && start < 32) g_status_trigger_flags |= 1u << start;
+}
 
 void user_io_status_set(const char *opt, uint32_t value, int ex)
 {
@@ -684,7 +698,7 @@ void user_io_status_set(const char *opt, uint32_t value, int ex)
 	int size = user_io_status_bits(opt, &start, &end, ex);
 	if (!size) return;
 #ifdef PH_PORT
-	if (value == 1 && size == 1) g_status_trigger_flags |= (1u << start);   // a T/R pulse, kept for the wrapper
+	if (value == 1 && size == 1 && !ex && start < 32) g_status_trigger_flags |= (1u << start);   // a T/R pulse, kept for the wrapper
 #endif
 
 	int s = start / 8;

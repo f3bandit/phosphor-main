@@ -188,7 +188,9 @@ uint32_t user_io_status_mask(const char *opt);
 uint32_t user_io_hd_mask(const char *opt);
 uint32_t user_io_status_get(const char *opt, int ex = 0);
 void user_io_status_set(const char *opt, uint32_t value, int ex = 0);
-uint32_t user_io_status_trigger_take();                                 // (3S-ARM's Main)
+uint32_t user_io_status_trigger_take();                                 // the T/R pulses since the last take
+int user_io_status_trigger_take_bit(int bit);                           // that one pulse (gameport, hybrid)
+void user_io_status_trigger_mark(const char *opt, int ex);              // (menu.cpp's T/R site)
 int user_io_status_save(const char *filename);
 void user_io_status_reset();
 

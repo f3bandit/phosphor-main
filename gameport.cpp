@@ -577,6 +577,42 @@ static int launch(void)
 	int music_off = user_io_status_get("[10]") != 0;
 	uint32_t fps = user_io_status_get("[12:11]");
 
+	// everything the child needs is built here: after fork in a Main with threads, the child may only make
+	// async-signal-safe calls (malloc, as setenv does, can deadlock on a lock another thread held)
+	static char ev[16][PATH_MAX + 64];
+	static char *envp[256];
+	int ne = 0, nv = 0;
+	extern char **environ;
+	snprintf(ev[nv++], sizeof(ev[0]), "HOME=%s", base);
+	snprintf(ev[nv++], sizeof(ev[0]), "%s_HOME=%s", port->env, base);
+	snprintf(ev[nv++], sizeof(ev[0]), "%s_BASEDIR=%s", port->env, base);
+	snprintf(ev[nv++], sizeof(ev[0]), "%s_NATIVE_VIDEO=1", port->env);
+	snprintf(ev[nv++], sizeof(ev[0]), "%s_FPS_OVERLAY=%s", port->env, fps == 1 ? "1" : fps == 2 ? "2" : "0");
+	if (shm) snprintf(ev[nv++], sizeof(ev[0]), "%s_JOY_SHM=%s", port->env, port->shm);
+	snprintf(ev[nv++], sizeof(ev[0]), "%s_RBF_PATH=%s", port->env, rbf);
+	snprintf(ev[nv++], sizeof(ev[0]), "SDL_VIDEODRIVER=dummy");
+	snprintf(ev[nv++], sizeof(ev[0]), "SDL_VIDEO_DRIVER=dummy");
+	snprintf(ev[nv++], sizeof(ev[0]), "SDL_RENDER_DRIVER=software");
+	snprintf(ev[nv++], sizeof(ev[0]), "SDL_AUDIODRIVER=alsa");
+	snprintf(ev[nv++], sizeof(ev[0]), "ALSA_CARD=default");
+	snprintf(ev[nv++], sizeof(ev[0]), "AUDIODEV=default");
+	for (int i = 0; i < nv; i++) envp[ne++] = ev[i];
+	for (char **e = environ; e && *e && ne < 254; e++)
+	{
+		int dup = 0;                                  // (ours win over Main's own)
+		const char *eq = strchr(*e, '=');
+		size_t kl = eq ? (size_t)(eq - *e) + 1 : strlen(*e);
+		for (int i = 0; i < nv && !dup; i++) if (!strncmp(ev[i], *e, kl)) dup = 1;
+		if (!dup) envp[ne++] = *e;
+	}
+	envp[ne] = NULL;
+	static char v[PATH_MAX + 8];
+	const char *argv[5] = { engine, NULL, NULL, NULL, NULL };
+	int a = 1;
+	if (port->duke_cfg) { snprintf(v, sizeof(v), "-j%s", base); argv[a++] = v; }
+	else { argv[a++] = "-basedir"; argv[a++] = base; }
+	if (music_off) argv[a++] = "-nocdaudio";
+
 	int pipefd[2];
 	if (pipe2(pipefd, O_CLOEXEC) < 0) return -1;
 	pid_t pid = fork();
@@ -602,29 +638,9 @@ static int launch(void)
 		int lf = open(lastrun, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		if (lf >= 0) { dup2(lf, 1); dup2(lf, 2); if (lf > 2) close(lf); }
 
-		char k[64], v[PATH_MAX];
-		setenv("HOME", base, 1);
-		snprintf(k, sizeof(k), "%s_HOME", port->env); setenv(k, base, 1);
-		snprintf(k, sizeof(k), "%s_BASEDIR", port->env); setenv(k, base, 1);
-		snprintf(k, sizeof(k), "%s_NATIVE_VIDEO", port->env); setenv(k, "1", 1);
-		snprintf(k, sizeof(k), "%s_FPS_OVERLAY", port->env); setenv(k, fps == 1 ? "1" : fps == 2 ? "2" : "0", 1);
-		if (shm) { snprintf(k, sizeof(k), "%s_JOY_SHM", port->env); setenv(k, port->shm, 1); }
-		snprintf(k, sizeof(k), "%s_RBF_PATH", port->env); setenv(k, rbf, 1);
-		setenv("SDL_VIDEODRIVER", "dummy", 1);
-		setenv("SDL_VIDEO_DRIVER", "dummy", 1);
-		setenv("SDL_RENDER_DRIVER", "software", 1);
-		setenv("SDL_AUDIODRIVER", "alsa", 1);
-		setenv("ALSA_CARD", "default", 1);
-		setenv("AUDIODEV", "default", 1);
 		prctl(PR_SET_NAME, port->proc, 0, 0, 0);
 		if (chdir(base)) {}
-
-		const char *argv[5] = { engine, NULL, NULL, NULL, NULL };
-		int a = 1;
-		if (port->duke_cfg) { snprintf(v, sizeof(v), "-j%s", base); argv[a++] = v; }
-		else { argv[a++] = "-basedir"; argv[a++] = base; }
-		if (music_off) argv[a++] = "-nocdaudio";
-		execv(engine, (char *const *)argv);
+		execve(engine, (char *const *)argv, envp);
 		int e = errno;
 		if (write(pipefd[1], &e, sizeof(e)) < 0) {}
 		_exit(127);
@@ -648,16 +664,25 @@ static int launch(void)
 static void kill_child(void)
 {
 	if (child <= 0) return;
-	kill(-child, SIGTERM);
+	pid_t pg = child;                            // (setsid: the game's group is its pid)
+	kill(-pg, SIGTERM);
 	kill(child, SIGTERM);
-	for (int i = 0; i < 50; i++)                 // up to 0.5 s to quit, then it's stopped
+	int gone = 0;
+	for (int i = 0; i < 50 && !gone; i++)        // up to 0.5 s to quit, then it's stopped
 	{
-		if (waitpid(child, NULL, WNOHANG) == child) { child = -1; return; }
-		usleep(10000);
+		if (waitpid(child, NULL, WNOHANG) == child) gone = 1;
+		else usleep(10000);
 	}
-	kill(-child, SIGKILL);
-	kill(child, SIGKILL);
-	waitpid(child, NULL, 0);
+	kill(-pg, SIGKILL);                          // whatever of its group is left, the game itself too
+	if (!gone)
+	{
+		kill(child, SIGKILL);
+		for (int i = 0; i < 200; i++)            // up to 2 s; one stuck in the kernel isn't waited for forever
+		{
+			if (waitpid(child, NULL, WNOHANG) == child) break;
+			usleep(10000);
+		}
+	}
 	child = -1;
 }
 
@@ -679,7 +704,8 @@ int gameport_begin(const char *rbf_path)
 	mkdir(base, 0755);
 	mkdir(logs, 0755);
 	snprintf(lp, sizeof(lp), "%s/phosphor-port.log", logs);
-	logf = fopen(lp, "w");
+	logf = fopen(lp, "we");
+	user_io_status_trigger_take();               // (pulses from before this core aren't its Restart)
 	plog("%s (core %s, %s)", port->title, name2 ? name2 : "?", rbf);
 	plog("%s", port->credit);
 	unlink(NOTE_PATH);
@@ -733,16 +759,17 @@ void gameport_poll(void)
 	watch();
 
 	// the core's Restart (T[22]): the trigger, or the status bit's rising edge if the pulse was missed
-	uint32_t trig = user_io_status_get("[22]") & 1;
-	if (trig && !restart_prev)
+	uint32_t lvl = user_io_status_get("[22]") & 1;
+	uint32_t trig = user_io_status_trigger_take_bit(22) || (lvl && !restart_prev);
+	if (trig)
 	{
 		plog("Restart from the OSD");
 		kill_child();
-		restart_prev = trig;
+		restart_prev = lvl;
 		if (launch() < 0) note_and_leave("engine");
 		return;
 	}
-	restart_prev = trig;
+	restart_prev = lvl;
 
 	int st = 0;
 	pid_t r = waitpid(child, &st, WNOHANG);
