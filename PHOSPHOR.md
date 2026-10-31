@@ -76,6 +76,24 @@ What's different in Phosphor's Main (`gameport.cpp`):
 - **Missing game data** (PAK0.PAK, duke3d.grp) or a missing game: Phosphor says which file and where, instead of a
   black screen. Quitting the game goes back to Phosphor.
 
+## 3S-ARM and Sonic Mania
+
+**kimchiman52**'s MiSTer ports: [3s-mister-arm](https://github.com/kimchiman52/3s-mister-arm) (AGPL-3.0) and
+[sonic-mania-mister](https://github.com/kimchiman52/sonic-mania-mister), on the
+[RSDKModding Sonic Mania decompilation](https://github.com/RSDKModding/Sonic-Mania-Decompilation) (Christian
+Whitehead, Headcannon, Evening Star and the RSDKModding community). Their cores and games are used as they are.
+
+Each comes with its own Main (`MiSTer_3S-ARM`, `MiSTer_SonicMania`: an older Main_MiSTer with their launcher and
+OSD options). Phosphor builds those Mains from **its own Main's source** instead (`make PORT=3s-arm`,
+`make PORT=sonic-mania`; the launchers in `ports/`, their changes to Main's files behind `PH_PORT`, `PH_3SARM`,
+`PH_SONIC`, so Phosphor's Main itself is built without them). They live in `phosphor/bin`, out of Update All's
+reach: today's Main (no HDMI CEC errors), Phosphor's API, and Quit going back to Phosphor's Main.
+
+Phosphor's Main switches to its build for `main=MiSTer_3S-ARM` / `main=MiSTer_SonicMania` only when the game and
+the core being loaded are the release it was made for (3S-ARM v20260417, Sonic Mania 0.3.1, by md5). After an
+update to the game, the game's own Main runs it, as before, and `phosphor/logs/port-mains.log` says Phosphor's
+build needs updating.
+
 ## Physical discs
 
 Games from the dock's CD/DVD drive (`/dev/sr0`), merged from

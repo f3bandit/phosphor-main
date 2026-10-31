@@ -1771,10 +1771,14 @@ static advancedButtonMap *mapping_store = NULL;
 static uint32_t tmp_axis[4];
 static int tmp_axis_n = 0;
 
+#ifdef PH_SONIC
+static int grabbed = 0;   // Sonic Mania's game reads the pads itself (SDL2): shared, not grabbed
+#else
 static int grabbed = 1;
-#ifdef PH_3SARM
+#endif
+#ifdef PH_PORT
 static int input_joy_passthrough = 0;
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 
 static uint32_t osd_timer = 0;
 static uint32_t map_advance_timer = 0;
@@ -2516,15 +2520,15 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 		// on OSD exit and causes combinations to match when partial buttons are pressed.
 		if (!user_io_osd_is_visible()) osdbtn = 0;
 
-#ifndef PH_3SARM
+#ifndef PH_PORT
 		if (user_io_osd_is_visible() || (bnum == BTN_OSD))
-#else /* PH_3SARM */
+#else /* PH_PORT */
 		if (input_btncheck_active && bnum != BTN_OSD)
 		{
 			set_key_state(num, code, press, mask);
 		}
 		else if (user_io_osd_is_visible() || (bnum == BTN_OSD))
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 		{
 			mask &= ~JOY_BTN3;
 			if (press)
@@ -2644,11 +2648,11 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 		{
 			// Phosphor's shell has the screen: the button went to it, mapped the way MiSTer has it
 		}
-#ifndef PH_3SARM
+#ifndef PH_PORT
 		else if (video_fb_state())
-#else /* PH_3SARM */
+#else /* PH_PORT */
 		else if (video_fb_state() && !input_joy_passthrough)
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 		{
 			switch (mask)
 			{
@@ -3203,7 +3207,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				{
 					// not defined try to guess the mapping
 					map_joystick(input[dev].map, input[dev].mmap);
-#ifdef PH_3SARM
+#ifdef PH_PORT
 
 					// When passthrough is active and the core defines no
 					// buttons (no J, in CONF_STR), map_joystick only fills
@@ -3215,7 +3219,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 							if (!input[dev].map[b] && input[dev].mmap[b])
 								input[dev].map[b] = input[dev].mmap[b];
 					}
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 				}
 				else
 				{
@@ -3815,11 +3819,11 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 					if (osd_event == 2) joy_digital(input[dev].num, 0, 0, 0, BTN_OSD);
 				}
 
-#ifndef PH_3SARM
+#ifndef PH_PORT
 				if (user_io_osd_is_visible() || video_fb_state())
-#else /* PH_3SARM */
+#else /* PH_PORT */
 				if ((user_io_osd_is_visible() && !input_btncheck_active) || (video_fb_state() && !input_joy_passthrough))
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 				{
 					if (ev->value <= 1)
 					{
@@ -6852,12 +6856,12 @@ void key_update_frames_held_cb(void)
 	}
 }
 
-#ifdef PH_3SARM
+#ifdef PH_PORT
 static uint32_t joy_mask_export[NUMPLAYERS] = {};
 static uint32_t joy_mask_raw[NUMPLAYERS] = {};
 int input_btncheck_active = 0;
 
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 int input_poll(int getchar)
 {
 	#ifdef PROFILING
@@ -6909,9 +6913,9 @@ int input_poll(int getchar)
 	for (int i = 0; i < NUMPLAYERS; i++) {
 		joy_mask[i] = build_joy_mask(i);
 		autofire_mask[i] = build_autofire_mask(i);
-#ifdef PH_3SARM
+#ifdef PH_PORT
 		joy_mask_raw[i] = joy_mask[i];
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 	}
 
 	if (grabbed)
@@ -6924,36 +6928,36 @@ int input_poll(int getchar)
 				joy_mask_prev[i] = joy_mask[i];
 				user_io_digital_joystick(i, joy_mask[i], newdir);
 			}
-#ifdef PH_3SARM
+#ifdef PH_PORT
 			joy_mask_export[i] = joy_mask[i];
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 		}
 	}
-#ifdef PH_3SARM
+#ifdef PH_PORT
 	else if (input_joy_passthrough)
 	{
 		for (int i = 0; i < NUMPLAYERS; i++)
 			joy_mask_export[i] = joy_mask[i] | autofire_mask[i];
 	}
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 
-#ifndef PH_3SARM
+#ifndef PH_PORT
 	if (!grabbed || user_io_osd_is_visible())
-#else /* PH_3SARM */
+#else /* PH_PORT */
 	if ((!grabbed || user_io_osd_is_visible()) && !input_joy_passthrough)
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 	{
 		for (int i = 0; i < NUMPLAYERS; i++)
 		{
 			if(joy_mask[i]) user_io_digital_joystick(i, 0, 1);
 		}
-#ifndef PH_3SARM
+#ifndef PH_PORT
 		memset(key_states, 0, sizeof(key_states));
-#else /* PH_3SARM */
+#else /* PH_PORT */
 		if (!input_btncheck_active)
 			memset(key_states, 0, sizeof(key_states));
 		memset(joy_mask_export, 0, sizeof(joy_mask_export));
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 	}
 
 	if (mouse_req)
@@ -7492,7 +7496,7 @@ void input_advanced_save_entry(advancedButtonMap *abm_entry, int devnum)
 		input_advanced_save(devnum);
 		return;
 	}
-#ifdef PH_3SARM
+#ifdef PH_PORT
 }
 
 void input_get_joy_mask(uint32_t *out, int count)
@@ -7510,5 +7514,5 @@ void input_get_joy_mask_raw(uint32_t *out, int count)
 void input_set_joy_passthrough(int enable)
 {
 	input_joy_passthrough = enable;
-#endif /* PH_3SARM */
+#endif /* PH_PORT */
 }

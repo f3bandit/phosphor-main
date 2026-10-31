@@ -3216,26 +3216,26 @@ void HandleUI(void)
 			parentstate = MENU_COMMON1;
 			int n;
 
-#ifdef PH_3SARM
+#if defined(PH_3SARM) || defined(PH_SONIC)
 			if (menusub == 0) menusub = 2;
-#endif /* PH_3SARM */
+#endif
 			while(1)
 			{
 				n = 0;
-#ifndef PH_3SARM
+#if !defined(PH_3SARM) && !defined(PH_SONIC)
 				menumask = 0x7805d;
-#else /* PH_3SARM */
+#else /* a port's Main: no Core entry (loading another core from under the running game) */
 				menumask = 0x7805c;
-#endif /* PH_3SARM */
+#endif
 
 				if (!menusub) firstmenu = 0;
 				adjvisible = 0;
 
-#ifndef PH_3SARM
+#if !defined(PH_3SARM) && !defined(PH_SONIC)
 				MenuWrite(n++, " Core                      \x16", menusub == 0, 0);
 				MenuWrite(n++);
 
-#endif /* ! PH_3SARM */
+#endif
 				if (cfg.osd_lock[0] && !cfg.osd_lock_time)
 				{
 					MenuWrite(n++, " Lock OSD", menusub == 1, 0);

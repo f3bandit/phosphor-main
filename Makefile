@@ -108,12 +108,18 @@ ifeq ($(PROFILING),1)
 	DFLAGS += -DPROFILING
 endif
 
-# Phosphor: a game port's own Main from the same source (make PORT=3s-arm -> bin-3s-arm/MiSTer_3S-ARM)
+# Phosphor: a game port's own Main from the same source (make PORT=3s-arm or PORT=sonic-mania -> bin-<port>/)
 ifeq ($(PORT),3s-arm)
 	BUILDDIR = bin-3s-arm
 	PRJ = MiSTer_3S-ARM
 	CPP_SRC := $(filter-out main.cpp,$(CPP_SRC)) $(wildcard ports/3s-arm/*.cpp)
-	DFLAGS += -DPH_3SARM -Iports/3s-arm
+	DFLAGS += -DPH_PORT -DPH_3SARM -DPH_PORT_CORE=\"3S-ARM\" -Iports/3s-arm
+endif
+ifeq ($(PORT),sonic-mania)
+	BUILDDIR = bin-sonic-mania
+	PRJ = MiSTer_SonicMania
+	CPP_SRC := $(filter-out main.cpp,$(CPP_SRC)) $(wildcard ports/sonic-mania/*.cpp)
+	DFLAGS += -DPH_PORT -DPH_SONIC -DPH_PORT_CORE=\"Sonic\ Mania\" -Iports/sonic-mania
 endif
 
 $(BUILDDIR)/$(PRJ): $(OBJ)

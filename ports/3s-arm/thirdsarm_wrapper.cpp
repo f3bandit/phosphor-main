@@ -1,7 +1,7 @@
 // 3S-ARM's Main, built from Phosphor's Main (make -f Makefile.3s-arm): kimchiman52's MiSTer_3S-ARM wrapper
 // (https://github.com/kimchiman52/3s-mister-arm, release v20260417, AGPL-3.0: see LICENSE here), with
 // Phosphor's API added (phosphor_poll) and the way back going to Phosphor's Main. Its changes to Main's
-// own files are behind PH_3SARM, so Phosphor's Main itself is built without them.
+// own files are behind PH_PORT / PH_3SARM, so Phosphor's Main itself is built without them.
 #include "thirdsarm_wrapper.h"
 
 #include <errno.h>
