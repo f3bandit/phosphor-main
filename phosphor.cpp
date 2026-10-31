@@ -39,6 +39,8 @@
 //   ports                  {"ok":true,"available":true,"on":false}
 //   ports on|off           the user port goes to the front ports (MT32-pi / MIDI off) or back. On
 //                          belongs to this connection: if it closes, the ports go off again.
+//   players                {"ok":true,"players":[{"dev":"event3","player":1,"name":"8BitDo ..."},...]}: the
+//                          input devices open and the player each is (0 none): RetroSpy's controller numbers
 //   pads                   {"ok":true,"pads":[{"port":1,"connected":true,"id":115,"buttons":16,
 //                          "rx":128,"ry":128,"lx":128,"ly":128},...]}   id 65 digital, 115 analog;
 //                          buttons pressed = 1: bit 0 Select, L3, R3, Start, Up, Right, Down, Left,
@@ -876,6 +878,13 @@ static void command(int i, char *line)
 		if (ports_client >= 0 && ports_client != i) { send_line(i, "{\"ok\":false,\"error\":\"another client has the front ports\"}"); return; }
 		ports_set(i, on);
 		send_line(i, "{\"ok\":true}");
+	}
+	else if (!strcmp(line, "players"))
+	{
+		static char list[3000], reply[3100];
+		input_players(list, sizeof(list));
+		snprintf(reply, sizeof(reply), "{\"ok\":true,\"players\":[%s]}", list);
+		send_line(i, reply);
 	}
 	else if (!strcmp(line, "pads"))
 	{

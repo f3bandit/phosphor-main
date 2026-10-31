@@ -7516,3 +7516,28 @@ void input_set_joy_passthrough(int enable)
 	input_joy_passthrough = enable;
 #endif /* PH_PORT */
 }
+
+// Phosphor: the input devices open now and the player each one is (0: none), for phosphord (RetroSpy's
+// controller numbers are /dev/input/jsN; phosphord matches them to these eventN through sysfs).
+// {"dev":"event3","player":1,"name":"..."},... into out; returns how many
+int input_players(char *out, size_t n)
+{
+	size_t len = 0;
+	int k = 0;
+	if (n) out[0] = 0;
+	for (int i = 0; i < NUMDEV; i++)
+	{
+		if (pool[i].fd < 0) continue;
+		const char *ev = strrchr(input[i].devname, '/');
+		if (!ev || strncmp(ev + 1, "event", 5)) continue;
+		char name[128];
+		size_t j = 0;
+		for (const char *c = input[i].name; *c && j + 1 < sizeof(name); c++) name[j++] = (*c == '"' || *c == '\\' || (unsigned char)*c < 0x20) ? ' ' : *c;
+		name[j] = 0;
+		int w = snprintf(out + len, n > len ? n - len : 0, "%s{\"dev\":\"%s\",\"player\":%d,\"name\":\"%s\"}", k ? "," : "", ev + 1, input[i].num, name);
+		if (w < 0 || len + (size_t)w >= n) break;
+		len += (size_t)w;
+		k++;
+	}
+	return k;
+}

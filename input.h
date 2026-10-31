@@ -129,6 +129,7 @@ int input_has_lightgun();
 void input_lightgun_save(int idx, int32_t *cal);
 
 void input_switch(int grab);
+int input_players(char *out, size_t n);   // Phosphor: the open devices and their players (JSON objects)
 int input_state();
 #ifdef PH_PORT
 void input_get_joy_mask(uint32_t *out, int count);
