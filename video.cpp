@@ -86,6 +86,11 @@ static int brd_y = 0;
 
 static int menu_bg = 0;
 static int menu_bgn = 0;
+#ifdef PH_3SARM
+// 3S-ARM's Main (kimchiman52's 3s-mister-arm wrapper, built from Phosphor's Main): the core's own 31.15 MHz
+// video clock for the YC encoder, and 384-wide analog modes for its CRT output
+static bool native_video_enabled = false;
+#endif
 
 VideoInfo current_video_info;
 
@@ -166,6 +171,12 @@ vmode_t tvmodes[] =
 	{{ 640, 16, 96, 48, 480,  8, 4, 33 }, 25.175, 0, 0 }, //NTSC 31K
 	{{ 640, 30, 60, 70, 288,  6, 4, 14 }, 12.587, 0, 0 }, //PAL 15K
 	{{ 640, 16, 96, 48, 576,  2, 4, 42 }, 25.175, 0, 0 }, //PAL 31K
+#ifdef PH_3SARM
+	{{ 384, 18, 36, 42, 240,  6, 4, 14 },  7.552446593, 0, 0 }, //NTSC 15K 384-native (fsc=3.579545×480/227.5)
+	{{ 384, 18, 36, 42, 288,  6, 4, 14 },  7.5,         0, 0 }, //PAL  15K 384-native (line_rate=15625 Hz)
+	{{ 768, 36, 72, 84, 240,  6, 4, 14 }, 15.104893187, 0, 0 }, //NTSC 15K 768-wide YC encode (exact 2x of 384-native active width)
+	{{ 768, 36, 72, 84, 288,  6, 4, 14 }, 15.0,         0, 0 }, //PAL  15K 768-wide YC encode (exact 2x of 384-native active width)
+#endif
 };
 
 // named aliases for vmode_custom_t items
@@ -2631,6 +2642,44 @@ static int should_auto_enable_direct_video()
 	return 0;
 }
 
+#ifdef PH_3SARM
+static bool has_explicit_video_mode_override()
+{
+	return strlen(cfg.video_conf) || strlen(cfg.video_conf_pal) || strlen(cfg.video_conf_ntsc);
+}
+
+static bool is_non_scandoubled_native_analog_output()
+{
+	if (video_is_direct()) return false;
+	if (cfg.vga_scaler) return false;
+	if (cfg.forced_scandoubler) return false;
+	return (cfg.vga_mode_int == 1) || (cfg.vga_mode_int == 2) || (cfg.vga_mode_int == 3);
+}
+
+static bool should_use_native_analog_384_output_mode()
+{
+	if (has_explicit_video_mode_override()) return false;
+	return is_non_scandoubled_native_analog_output() && (cfg.vga_mode_int == 1);
+}
+
+static bool should_use_native_analog_yc_output_mode()
+{
+	if (has_explicit_video_mode_override()) return false;
+	return is_non_scandoubled_native_analog_output() && ((cfg.vga_mode_int == 2) || (cfg.vga_mode_int == 3));
+}
+
+static void set_tv_video_mode(int mode)
+{
+	memset(&v_def, 0, sizeof(v_def));
+	v_def.item[0] = mode;
+	for (int i = 0; i < 8; i++) v_def.item[i + 1] = tvmodes[mode].vpar[i];
+	setPLL(tvmodes[mode].Fpix, &v_def);
+	vmode_def = 1;
+	vmode_pal = 0;
+	vmode_ntsc = 0;
+}
+#endif
+
 static void video_mode_load(bool keep_direct_video_auto = false)
 {
 	static bool direct_video_auto = false;
@@ -2670,6 +2719,23 @@ static void video_mode_load(bool keep_direct_video_auto = false)
 		vmode_pal = 0;
 		vmode_ntsc = 0;
 	}
+#ifdef PH_3SARM
+	else if (!has_explicit_video_mode_override() && !cfg.vga_scaler &&
+	         ((cfg.vga_mode_int == 1) || (cfg.vga_mode_int == 2) || (cfg.vga_mode_int == 3)) && cfg.forced_scandoubler)
+	{
+		set_tv_video_mode((cfg.menu_pal ? 2 : 0) + 1);
+	}
+	else if (should_use_native_analog_384_output_mode())
+	{
+		printf("video_mode_load: 384-native analog TV mode for vga_mode=%s\n", cfg.vga_mode);
+		set_tv_video_mode(cfg.menu_pal ? 5 : 4);
+	}
+	else if (should_use_native_analog_yc_output_mode())
+	{
+		printf("video_mode_load: 768-wide YC analog TV mode with a 384 framebuffer for vga_mode=%s\n", cfg.vga_mode);
+		set_tv_video_mode(cfg.menu_pal ? 7 : 6);
+	}
+#endif
 	else
 	{
 		vmode_def = 0;
@@ -3287,6 +3353,26 @@ static void set_yc_mode()
 			PHASE_INC = ((int64_t)((CLK_REF / CLK_VIDEO) *
 				1099511627776LL)) & 0xFFFFFFFFFFLL;
 		}
+#ifdef PH_3SARM
+		{
+			// 3S-ARM: its native video runs the YC encoder at the core's own PLL (50 * 81/5 / 26 =
+			// 31.1538 MHz); the HPS framebuffer in the 768-wide YC mode at the output clock. With no
+			// measurement yet (vtime 0), PAL or NTSC from the output timing, not "PAL" by default.
+			const bool fb_auto = v_cur.Fpix > 0.0 && get_vga_fb() && should_use_native_analog_yc_output_mode();
+			if (native_video_enabled || fb_auto)
+			{
+				CLK_VIDEO = native_video_enabled ? (405.0 / 13.0) : v_cur.Fpix;
+				if (!current_video_info.vtime)
+				{
+					int ht = (int)(v_cur.param.hact + v_cur.param.hfp + v_cur.param.hs + v_cur.param.hbp);
+					int vt = (int)(v_cur.param.vact + v_cur.param.vfp + v_cur.param.vs + v_cur.param.vbp);
+					pal = (ht > 0 && vt > 0) ? ((v_cur.Fpix * 1000000.0) / ((double)ht * vt) < 55.0) : (cfg.menu_pal ? 1 : 0);
+					CLK_REF = (pal || (cfg.ntsc_mode == 1)) ? 4.43361875 : (cfg.ntsc_mode == 2) ? 3.575611 : 3.579545;
+				}
+				PHASE_INC = ((int64_t)((CLK_REF / CLK_VIDEO) * 1099511627776LL)) & 0xFFFFFFFFFFLL;
+			}
+		}
+#endif
 
 		int COLORBURST_START = (int)(3.7f * (CLK_VIDEO / CLK_REF));
 		int COLORBURST_END = (int)(9.0f * (CLK_VIDEO / CLK_REF)) + COLORBURST_START;
@@ -3614,7 +3700,7 @@ void video_fb_enable(int enable, int n)
 		int res = spi_uio_cmd_cont(UIO_SET_FBUF);
 		if (res)
 		{
-			if (is_menu() && !enable && menu_bg)
+			if (is_menu_like_fb() && !enable && menu_bg)
 			{
 				enable = 1;
 				n = menu_bgn;
@@ -3673,12 +3759,28 @@ void video_fb_enable(int enable, int n)
 		DisableIO();
 		if (cfg.direct_video) set_vga_fb(enable);
 		if (is_menu()) user_io_status_set("[8:5]", (fb_enabled && !fb_num) ? 0xB : 0);
+#ifdef PH_3SARM
+		else if (is_menu_like_fb()) user_io_status_set("[8:5]", (fb_enabled && !fb_num) ? 0x160 : 0);   // 3S-ARM's core (an older menu core)
+#endif
 	}
 }
 
+#ifdef PH_3SARM
+void video_fb_clear(uint32_t color, int n)
+{
+	if (!fb_base) return;
+	if (n < 0 || n > 2) return;
+	volatile uint32_t *buf = fb_base + (FB_SIZE * n);
+	for (int i = 0; i < FB_SIZE; ++i) buf[i] = color;
+}
+
+void video_set_native_video_enabled(bool enabled) { native_video_enabled = enabled; }
+void video_refresh_yc_mode() { set_yc_mode(); }
+#endif
+
 int video_fb_state()
 {
-	if (is_menu())
+	if (is_menu_like_fb())
 	{
 		return fb_enabled && !fb_num;
 	}
@@ -3691,6 +3793,19 @@ static void video_fb_config()
 {
 	PROFILE_FUNCTION();
 
+#ifdef PH_3SARM
+	if (should_use_native_analog_yc_output_mode())
+	{
+		// the framebuffer at the game's 384 width; MiSTer's scaler doubles it into the 768-wide YC raster
+		fb_width = 384;
+		fb_height = v_cur.item[5];
+		brd_x = cfg.vscale_border;
+		brd_y = cfg.vscale_border;
+		if (fb_enabled) video_fb_enable(1, fb_num);
+		fb_write_module_params();
+		return;
+	}
+#endif
 	int fb_scale = cfg.fb_size;
 
 	if (fb_scale <= 1)

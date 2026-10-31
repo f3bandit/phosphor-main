@@ -67,6 +67,7 @@
 // Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #include "phosphor.h"
 #include "gameport.h"
+#include "lib/md5/md5.h"
 #include "phosphor_disc.h"
 #include "scaler.h"
 #include "achievements.h"
@@ -1116,6 +1117,62 @@ int phosphor_keep_main(const char *cfg_main)
 	static const char *const ours[] = { "MiSTer", "MiSTer_Physical-CD", "MiSTer_RA" };
 	for (const char *o : ours) if (!strcasecmp(b, o)) return 1;
 	return gameport_main_merged(b);       // MiSTer_Quake, Mister_duke3d: their games run here (gameport.cpp)
+}
+
+// A game port whose own Main Phosphor builds from its source (ports/, make PORT=...): [3S-ARM] main=MiSTer_3S-ARM
+// runs Phosphor's build in phosphor/bin (today's Main, Phosphor's API), out of Update All's reach. Only with
+// the game and core it was built and tested with: if Update All brings a newer game, the port's own Main runs
+// it as before (it matches) and the log says Phosphor's build needs updating.
+static const struct { const char *main, *ours, *file[2], *md5[2]; } port_mains[] = {
+	{ "MiSTer_3S-ARM", "/media/fat/phosphor/bin/MiSTer_3S-ARM",
+	  { "/media/fat/games/3s-arm/bin/3s-arm", "/media/fat/_Other/3S-ARM.rbf" },
+	  { "8d87e22a8330244802193da042edebc3", "aa872f87f1b22edf3f7d02c5d7f35c85" } },   // release v20260417
+};
+
+static int file_md5_is(const char *path, const char *want)
+{
+	FILE *f = fopen(path, "rb");
+	if (!f) return 0;
+	struct MD5Context c;
+	MD5Init(&c);
+	static unsigned char buf[65536];
+	size_t n;
+	while ((n = fread(buf, 1, sizeof(buf), f)) > 0) MD5Update(&c, buf, (unsigned)n);
+	fclose(f);
+	unsigned char d[16];
+	MD5Final(d, &c);
+	char hex[33];
+	for (int i = 0; i < 16; i++) sprintf(hex + i * 2, "%02x", d[i]);
+	return !strcasecmp(hex, want);
+}
+
+const char *phosphor_port_main(const char *cfg_main)
+{
+	if (!cfg_main || !*cfg_main) return NULL;
+	const char *b = strrchr(cfg_main, '/');
+	b = b ? b + 1 : cfg_main;
+	for (const auto &p : port_mains)
+	{
+		if (strcasecmp(b, p.main)) continue;
+		if (access(p.ours, X_OK)) return NULL;
+		for (int i = 0; i < 2; i++)
+			if (!file_md5_is(p.file[i], p.md5[i]))
+			{
+				printf("Phosphor: %s isn't the version its Main was built for: %s runs it\n", p.file[i], p.main);
+				FILE *l = fopen("/media/fat/phosphor/logs/port-mains.log", "a");
+				if (l)
+				{
+					time_t t = time(NULL);
+					char ts[32];
+					strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", localtime(&t));
+					fprintf(l, "%s  %s changed (an update?): Phosphor's %s needs rebuilding; the game's own Main ran it\n", ts, p.file[i], p.main);
+					fclose(l);
+				}
+				return NULL;
+			}
+		return p.ours;
+	}
+	return NULL;
 }
 
 int phosphor_installed(void)

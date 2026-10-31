@@ -9,6 +9,7 @@
 #include <termios.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include "fpga_io.h"
 #include "phosphor.h"
@@ -430,7 +431,15 @@ static int make_env(const char *name, const char *cfg)
 	return 0;
 }
 
+#ifdef PH_3SARM
+static int fpga_load_rbf_(const char *name, const char *cfg, const char *xml, int restart);
+// 3S-ARM's Main: the menu core loaded without restarting Main (it execs Phosphor's Main itself after)
+int fpga_load_rbf_no_restart(const char *name) { return fpga_load_rbf_(name, 0, 0, 0); }
+int fpga_load_rbf(const char *name, const char *cfg, const char *xml) { return fpga_load_rbf_(name, cfg, xml, 1); }
+static int fpga_load_rbf_(const char *name, const char *cfg, const char *xml, int restart)
+#else
 int fpga_load_rbf(const char *name, const char *cfg, const char *xml)
+#endif
 {
 	OsdDisable();
 	static char path[1024];
@@ -514,6 +523,9 @@ int fpga_load_rbf(const char *name, const char *cfg, const char *xml)
 	}
 	close(rbf);
 
+#ifdef PH_3SARM
+	if (!restart) return ret;
+#endif
 	app_restart(!strcasecmp(name, "menu.rbf") ? "menu.rbf" : path, xml);
 	return ret;
 }
@@ -665,6 +677,13 @@ char *getappname()
 void app_restart(const char *path, const char *xml, const char *exe)
 {
 	gameport_stop();                 // Phosphor: a game port's game stopped before the next core (gameport.cpp)
+#ifdef PH_3SARM
+	{
+		extern volatile sig_atomic_t g_child_pid;    // 3S-ARM's game: stopped before Main goes
+		pid_t child = (pid_t)g_child_pid;
+		if (child > 0) { kill(child, SIGTERM); waitpid(child, NULL, 0); }
+	}
+#endif
 	sync();
 	fpga_core_reset(1);
 
