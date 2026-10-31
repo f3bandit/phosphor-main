@@ -94,6 +94,20 @@ the core being loaded are the release it was made for (3S-ARM v20260417, Sonic M
 update to the game, the game's own Main runs it, as before, and `phosphor/logs/port-mains.log` says Phosphor's
 build needs updating.
 
+## Hybrid cores (Maldita Castilla...)
+
+**gmcnaught**'s [mister-hybrid-platform](https://github.com/gmcnaught/mister-hybrid-platform) ports
+([Maldita Castilla](https://github.com/gmcnaught/maldita.castilla-mister) and the other GameMaker, Solarus and Godot
+ports) run their engine on the ARM side and ship a launcher with an entry for it,
+`games/<gamedir>/platform/hybrid.d/<CORENAME>.conf`, which their own `main=` binary (`MiSTer_hybrid`) reads.
+Phosphor's Main does that binary's job itself (`hybrid.cpp`, written from the platform's documented contract):
+once the core is loaded and the FPGA is ready it starts the core's launcher, honours its OSD Reset, and stops it
+before another core. The entry is found next to `main=` when it names a `MiSTer_hybrid`, otherwise in any
+`games/*/platform/hybrid.d`, so these games also start from Phosphor's library without the port's "Cores menu"
+option. Their cores, launchers and games are used as they are.
+
+NBlood (meathax) keeps its own Main: its launcher's source isn't published, so Phosphor follows its `main=`.
+
 ## Physical discs
 
 Games from the dock's CD/DVD drive (`/dev/sr0`), merged from

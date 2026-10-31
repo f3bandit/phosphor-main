@@ -67,6 +67,7 @@
 // Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #include "phosphor.h"
 #include "gameport.h"
+#include "hybrid.h"
 #include "lib/md5/md5.h"
 #include "phosphor_disc.h"
 #include "scaler.h"
@@ -1116,7 +1117,7 @@ int phosphor_keep_main(const char *cfg_main)
 	b = b ? b + 1 : cfg_main;
 	static const char *const ours[] = { "MiSTer", "MiSTer_Physical-CD", "MiSTer_RA" };
 	for (const char *o : ours) if (!strcasecmp(b, o)) return 1;
-	return gameport_main_merged(b);       // MiSTer_Quake, Mister_duke3d: their games run here (gameport.cpp)
+	return gameport_main_merged(b) || hybrid_main(b);   // and MiSTer_hybrid (hybrid.cpp)       // MiSTer_Quake, Mister_duke3d: their games run here (gameport.cpp)
 }
 
 // A game port whose own Main Phosphor builds from its source (ports/, make PORT=...): [3S-ARM] main=MiSTer_3S-ARM

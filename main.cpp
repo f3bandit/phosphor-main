@@ -35,6 +35,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "fpga_io.h"
 #include "phosphor.h"
 #include "gameport.h"
+#include "hybrid.h"
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
@@ -123,6 +124,7 @@ int main(int argc, char *argv[])
 		OsdUpdate();
 		phosphor_poll();                       // Phosphor: local API (phosphor.cpp)
 		gameport_poll();                       // Phosphor: a game port's game (gameport.cpp)
+		hybrid_poll();                         // Phosphor: a hybrid core's launcher (hybrid.cpp)
 	}
 #endif
 	return 0;

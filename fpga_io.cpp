@@ -14,6 +14,7 @@
 #include "fpga_io.h"
 #include "phosphor.h"
 #include "gameport.h"
+#include "hybrid.h"
 #include "file_io.h"
 #include "input.h"
 #include "osd.h"
@@ -637,6 +638,7 @@ static void phosphor_safe_stop(void)
 void reboot(int cold)
 {
 	gameport_stop();
+	hybrid_stop();
 	reboot_note(cold, __builtin_return_address(0));
 	sync();
 	phosphor_safe_stop();
@@ -677,6 +679,7 @@ char *getappname()
 void app_restart(const char *path, const char *xml, const char *exe)
 {
 	gameport_stop();                 // Phosphor: a game port's game stopped before the next core (gameport.cpp)
+	hybrid_stop();                   // Phosphor: and a hybrid core's launcher (hybrid.cpp)
 #ifdef PH_PORT
 	{
 		extern volatile sig_atomic_t g_child_pid;    // 3S-ARM's game: stopped before Main goes
