@@ -12,6 +12,7 @@
 
 #include "fpga_io.h"
 #include "phosphor.h"
+#include "gameport.h"
 #include "file_io.h"
 #include "input.h"
 #include "osd.h"
@@ -623,6 +624,7 @@ static void phosphor_safe_stop(void)
 
 void reboot(int cold)
 {
+	gameport_stop();
 	reboot_note(cold, __builtin_return_address(0));
 	sync();
 	phosphor_safe_stop();
@@ -662,6 +664,7 @@ char *getappname()
 
 void app_restart(const char *path, const char *xml, const char *exe)
 {
+	gameport_stop();                 // Phosphor: a game port's game stopped before the next core (gameport.cpp)
 	sync();
 	fpga_core_reset(1);
 

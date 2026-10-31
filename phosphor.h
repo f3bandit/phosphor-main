@@ -30,7 +30,8 @@ int phosphor_keep_main(const char *cfg_main);
 // closed instead of popping up first; 0 once the shell has the screen, gave it back, or 60 s passed
 int phosphor_hold_menu(void);
 int phosphor_bt_pair(void);           // the Bluetooth button with Phosphor's screen up: Phosphor's own pairing (1)
-int phosphor_ingame_text(void);         // Phosphor's in-game menu is OSD text (CRT mode): the pads go to it
+int phosphor_ingame_text(void);
+int phosphor_ingame_shown(void);        // Phosphor's in-game menu is over the game (the pads go to it)         // Phosphor's in-game menu is OSD text (CRT mode): the pads go to it
 int phosphor_start(void);
 // Main is about to restart the system on purpose: heavy work that was running didn't lose power
 void phosphor_mark_clean(void);

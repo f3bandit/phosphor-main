@@ -34,6 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "frame_timer.h"
 #include "fpga_io.h"
 #include "phosphor.h"
+#include "gameport.h"
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
@@ -98,6 +99,7 @@ int main(int argc, char *argv[])
 
 	FindStorage();
 	user_io_init((argc > 1) ? argv[1] : "",(argc > 2) ? argv[2] : NULL);
+	gameport_begin((argc > 1) ? argv[1] : "");   // Phosphor: Quake, Duke3D... run here (gameport.cpp)
 	achievements_init();
 
 	physical_disc_launch_startup();
@@ -120,6 +122,7 @@ int main(int argc, char *argv[])
 		HandleUI();
 		OsdUpdate();
 		phosphor_poll();                       // Phosphor: local API (phosphor.cpp)
+		gameport_poll();                       // Phosphor: a game port's game (gameport.cpp)
 	}
 #endif
 	return 0;

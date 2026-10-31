@@ -66,6 +66,7 @@
 // functions, from Main's UI loop.
 // Copyright (C) 2026 f3bandit. GPL-3.0 (see LICENSE).
 #include "phosphor.h"
+#include "gameport.h"
 #include "phosphor_disc.h"
 #include "scaler.h"
 #include "achievements.h"
@@ -591,6 +592,7 @@ static void ingame_end_text(void)
 	if (ingame_text) { ingame_text = 0; phosphor_osd_menu_off(); }
 }
 int phosphor_ingame_text(void) { return ingame_text && ingame_client >= 0; }
+int phosphor_ingame_shown(void) { return ingame_client >= 0; }
 
 static void drop(int i)
 {
@@ -1113,7 +1115,7 @@ int phosphor_keep_main(const char *cfg_main)
 	b = b ? b + 1 : cfg_main;
 	static const char *const ours[] = { "MiSTer", "MiSTer_Physical-CD", "MiSTer_RA" };
 	for (const char *o : ours) if (!strcasecmp(b, o)) return 1;
-	return 0;
+	return gameport_main_merged(b);       // MiSTer_Quake, Mister_duke3d: their games run here (gameport.cpp)
 }
 
 int phosphor_installed(void)

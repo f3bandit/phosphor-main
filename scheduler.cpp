@@ -1,5 +1,6 @@
 #include "scheduler.h"
 #include "phosphor.h"
+#include "gameport.h"
 #include <stdio.h>
 #include "libco.h"
 #include "menu.h"
@@ -56,6 +57,7 @@ static void scheduler_co_ui(void)
 			HandleUI();
 			OsdUpdate();
 			phosphor_poll();                   // Phosphor: local API (phosphor.cpp)
+			gameport_poll();                   // Phosphor: a game port's game (gameport.cpp)
 		}
 
 		scheduler_yield();
