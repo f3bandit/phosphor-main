@@ -101,6 +101,7 @@ static time_t fails[3];
 static int nfails;
 static char cpu_max_orig[32];
 static unsigned long rescan_at;
+static unsigned long watch_from;      // the freeze watch starts 20 s after the game
 
 #define CPU_MAX_NODE "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
 #define CPU_GOV_NODE "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
@@ -506,6 +507,68 @@ static void clear_picture(void)
 	shmem_unmap(p, 0x1000);
 }
 
+// ---------- a freeze watch (for the log) ----------
+// The game writes a frame counter into the picture's CTRL block (0x3A000000, ARM to FPGA) and the core counts
+// the frames it shows (FEEDBACK, +0x40). Once a second: if the game's counter stops for 3 s while it runs,
+// the log says so, with the game's state, its CPU time, the core's counter, and whether a menu was open.
+static void game_state(char *out, size_t n)
+{
+	char p[64], b[512];
+	snprintf(p, sizeof(p), "/proc/%d/stat", (int)child);
+	out[0] = 0;
+	FILE *f = fopen(p, "r");
+	if (!f) { snprintf(out, n, "gone"); return; }
+	size_t r = fread(b, 1, sizeof(b) - 1, f);
+	fclose(f);
+	b[r] = 0;
+	char *e = strrchr(b, ')');
+	char st = '?';
+	unsigned long ut = 0, stt = 0;
+	if (e) sscanf(e + 2, "%c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &st, &ut, &stt);
+	char wchan[64] = "";
+	snprintf(p, sizeof(p), "/proc/%d/wchan", (int)child);
+	f = fopen(p, "r");
+	if (f) { size_t w = fread(wchan, 1, sizeof(wchan) - 1, f); wchan[w] = 0; fclose(f); }
+	snprintf(out, n, "state %c, cpu %lu+%lu ticks, waiting in %s", st, ut, stt, wchan[0] ? wchan : "-");
+}
+
+static void watch(void)
+{
+	static unsigned long at;
+	static uint32_t last_frame, still;
+	static int was_menu = -1;
+	if (!CheckTimer(at)) return;
+	at = GetTimer(1000);
+	if (!CheckTimer(watch_from)) return;        // (loading the game: the picture waits for its first frame)
+	int menu = menu_present() ? 1 : phosphor_ingame_shown() ? 2 : 0;
+	if (menu != was_menu)
+	{
+		if (was_menu >= 0) plog("%s", menu == 1 ? "MiSTer's OSD open" : menu == 2 ? "Phosphor's in-game menu open" : "menu closed");
+		was_menu = menu;
+	}
+	volatile uint32_t *m = (volatile uint32_t *)shmem_map(0x3A000000, 0x1000);
+	if (!m) return;
+	uint32_t c0 = m[0], c1 = m[1], f0 = m[16], f1 = m[17];
+	shmem_unmap((void *)m, 0x1000);
+	uint32_t frame = c0 ^ (c1 << 1);
+	if (frame == last_frame)
+	{
+		if (++still == 3)
+		{
+			char gs[160];
+			game_state(gs, sizeof(gs));
+			plog("the game's picture stopped: ctrl %08x %08x, core %08x %08x, game %s, %s", c0, c1, f0, f1, gs,
+				menu == 1 ? "MiSTer's OSD open" : menu == 2 ? "Phosphor's in-game menu open" : "no menu open");
+		}
+	}
+	else
+	{
+		if (still >= 3) plog("the game's picture moves again (after %u s)", still);
+		still = 0;
+		last_frame = frame;
+	}
+}
+
 static int launch(void)
 {
 	char engine[PATH_MAX], lastrun[PATH_MAX];
@@ -576,6 +639,7 @@ static int launch(void)
 		waitpid(pid, NULL, 0);
 		return -1;
 	}
+	watch_from = GetTimer(20000);
 	plog("started %s (pid %d)%s", engine, (int)pid, music_off ? ", music off" : "");
 	child = pid;
 	return 0;
@@ -666,6 +730,7 @@ void gameport_poll(void)
 		unsigned long now = !stat("/dev/input", &st) ? (unsigned long)st.st_mtime : 0;
 		if (now != seen) { seen = now; pads_scan(); }   // a pad plugged in or gone since
 	}
+	watch();
 
 	// the core's Restart (T[22]): the trigger, or the status bit's rising edge if the pulse was missed
 	uint32_t trig = user_io_status_get("[22]") & 1;
