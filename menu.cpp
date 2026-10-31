@@ -284,7 +284,7 @@ const char *joy_button_map[] = { "RIGHT", "LEFT", "DOWN", "UP", "BUTTON A", "BUT
 const char *joy_ana_map[] = { "    DPAD test: Press RIGHT", "    DPAD test: Press DOWN", "   Stick 1 Test: Tilt RIGHT", "   Stick 1 Test: Tilt DOWN", "   Stick 2 Test: Tilt RIGHT", "   Stick 2 Test: Tilt DOWN" };
 const char *config_stereo_msg[] = { "0%", "25%", "50%", "100%" };
 const char *config_dsnd_msg[] = { "Off", "Quiet", "Normal", "Loud" };
-const char *config_cdspeed_msg[] = { "Original", "2x", "4x", "8x" };
+const char *config_cdspeed_msg[] = { "Original", "2x", "4x", "Max Speed" };
 const char *config_uart_msg[] = { "      None", "       PPP", "   Console", "      MIDI", "     Modem", "UDP", "SNI"};
 const char *config_midilink_mode[] = {"Local", "Local", "  USB", "  UDP", "-----", "-----", "  USB" };
 const char *config_afilter_msg[] = { "Internal","Custom" };
@@ -1173,6 +1173,19 @@ int menu_launch_script_command(const char *command, const char *title, const cha
 int menu_launch_graphical_script_command(const char *command, const char *title, const char *process_name)
 {
 	return menu_queue_script_command(command, title, process_name, true);
+}
+
+static bool mra_pending_target(const char *p)
+{
+	mgl_struct *mgl = mgl_get();
+	if (mgl->done || !mgl->from_mra || p[0] != 'S') return false;
+
+	int idx = 1;
+	if (p[idx] == 'S') idx++;
+	if (p[idx] == 'C') idx++;
+
+	int num = (p[idx] >= '0' && p[idx] <= '9') ? p[idx] - '0' : 0;
+	return num == mgl->item[mgl->current].index;
 }
 
 void HandleUI(void)
@@ -2202,7 +2215,7 @@ void HandleUI(void)
 
 					last_space = 0;
 
-					if (!h && inpage)
+					if ((!h || mra_pending_target(p)) && inpage)
 					{
 						if (p[0] == 'P')
 						{
@@ -2640,7 +2653,7 @@ void HandleUI(void)
 						}
 					}
 
-					if (!inpage || h || p[0] < 'A') continue;
+					if (!inpage || (h && !mra_pending_target(p)) || p[0] < 'A') continue;
 
 					// supplement files
 					if (p[0] == 'f')
@@ -7474,8 +7487,8 @@ void HandleUI(void)
 				if (select || minus || plus)
 				{
 					int mode = (minimig_get_extcfg() >> 21) & 3;
-					if (minus) mode = (mode <= 0) ? 2 : (mode - 1);
-					else mode = (mode >= 2) ? 0 : (mode + 1);
+					if (minus) mode = (mode <= 0) ? 3 : (mode - 1);
+					else mode = (mode >= 3) ? 0 : (mode + 1);
 					minimig_set_extcfg((minimig_get_extcfg() & ~0x600000) | (mode << 21));
 					menustate = MENU_MINIMIG_DISK1;
 				}
