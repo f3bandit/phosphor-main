@@ -59,6 +59,23 @@ own functions, from Main's UI loop.
 
 Coming: pause and save-state slots (cores that support them).
 
+## Game ports (Quake, Duke Nukem 3D)
+
+Games that run on the ARM side while their core only puts the picture out. Both are **neofreno**'s MiSTer ports
+([mister_quake](https://github.com/neofreno/mister_quake), on TyrQuake and id Software's GPL Quake source;
+[mister_duke3d](https://github.com/neofreno/mister_duke3d), on 3D Realms' GPL Duke Nukem 3D source; GPL-2.0),
+which follow **kimchiman52**'s ARM ports ([sonic-mania-mister](https://github.com/kimchiman52/sonic-mania-mister),
+[3s-mister-arm](https://github.com/kimchiman52/3s-mister-arm)). Their cores and games are used as they are.
+
+What's different in Phosphor's Main (`gameport.cpp`):
+- **One Main.** Each port came with its own Main (`MiSTer_Quake`, `Mister_duke3d`: an older Main_MiSTer with a
+  wrapper), reached through `main=` sections in MiSTer.ini. Phosphor's Main stays for those and does the wrapper's
+  job itself, from the wrappers' code: the game started on CPU 0, the controllers through the games' shared
+  memory, Music off / FPS overlay / Restart from the core's OSD. Today's Main, so no HDMI CEC errors before the
+  game, and Phosphor's in-game menu works.
+- **Missing game data** (PAK0.PAK, duke3d.grp) or a missing game: Phosphor says which file and where, instead of a
+  black screen. Quitting the game goes back to Phosphor.
+
 ## Physical discs
 
 Games from the dock's CD/DVD drive (`/dev/sr0`), merged from
