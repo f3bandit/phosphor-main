@@ -3,6 +3,10 @@
 > run it: [PHOSPHOR.md](PHOSPHOR.md). Everything else below is MiSTer Main's own README. GPL-3.0, like Main;
 > not made or supported by MiSTer-devel.
 >
+> MiSTer Main is the work of **Alexey Melnikov (Sorgelig)** and the
+> [MiSTer-devel contributors](https://github.com/MiSTer-devel/Main_MiSTer/graphs/contributors); their commits are kept
+> in this repository's history. Phosphor's changes on top: **f3bandit**.
+>
 > Physical disc support (the SuperStation dock's CD/DVD drive) is merged from
 > [Main_MiSTer_Physical_Disc](https://github.com/Anime0t4ku/Main_MiSTer_Physical_Disc) by **Anime0t4ku** and **bonna79**
 > (GPL-3.0): see [PHOSPHOR.md](PHOSPHOR.md#physical-discs).
