@@ -8278,7 +8278,7 @@ void HandleUI(void)
 			video_chvt(2);
 			video_fb_enable(1);
 			vga_nag();
-			sprintf(cmd, "#!/bin/bash\nexport LC_ALL=en_US.UTF-8\nexport HOME=/root\ncd $(dirname %s)\n%s\necho \"Press any key to continue\"\n", path, path);
+			sprintf(cmd, "#!/bin/bash\nexport LC_ALL=en_US.UTF-8\nexport HOME=/root\n%s\ncd $(dirname %s)\n%s\necho \"Press any key to continue\"\n", phosphor_script_path(), path, path);
 
 			unlink("/tmp/script");
 			FileSave("/tmp/script", cmd, strlen(cmd));

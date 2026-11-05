@@ -536,6 +536,19 @@ static void script_finish(void)
 	script_client = -1;
 }
 
+// The scripts' PATH starts with phosphor/compat: "killall MiSTer" and "pidof MiSTer" there mean Phosphor's Main
+// (MiSTer_phosphor), for the scripts that stop MiSTer's Main to take the FPGA over (DreamSTer). Empty without it.
+const char *phosphor_script_path(void)
+{
+	static char line[1100];
+	char dir[1024];
+	struct stat sb;
+	snprintf(dir, sizeof(dir), "%s/phosphor/compat", getRootDir());
+	if (stat(dir, &sb) || !S_ISDIR(sb.st_mode) || strchr(dir, '"') || strchr(dir, '$')) return "";
+	snprintf(line, sizeof(line), "export PATH=\"%s:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}\"", dir);
+	return line;
+}
+
 static void script_start(int i, const char *path)
 {
 	struct stat sb;
@@ -548,8 +561,8 @@ static void script_start(int i, const char *path)
 		return;
 	}
 	static char cmd[2048];
-	snprintf(cmd, sizeof(cmd), "#!/bin/bash\nexport LC_ALL=en_US.UTF-8\nexport HOME=/root\ncd \"$(dirname \"%s\")\"\n\"%s\"\n"
-		"EXITSTATUS=$?\necho \"Press any key to continue\"\nexit $EXITSTATUS\n", path, path);
+	snprintf(cmd, sizeof(cmd), "#!/bin/bash\nexport LC_ALL=en_US.UTF-8\nexport HOME=/root\n%s\ncd \"$(dirname \"%s\")\"\n\"%s\"\n"
+		"EXITSTATUS=$?\necho \"Press any key to continue\"\nexit $EXITSTATUS\n", phosphor_script_path(), path, path);
 	unlink("/tmp/phosphor-script");
 	int fd = open("/tmp/phosphor-script", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0755);
 	if (fd < 0 || write(fd, cmd, strlen(cmd)) != (ssize_t)strlen(cmd)) { if (fd >= 0) close(fd); send_line(i, "{\"ok\":false,\"error\":\"can't write /tmp\"}"); return; }

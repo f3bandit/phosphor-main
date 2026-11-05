@@ -26,6 +26,7 @@ int phosphor_installed(void);
 const char *phosphor_menu_core(void);
 // MiSTer.ini's main= is the default ("MiSTer"): Phosphor's Main stays instead of handing over to it
 int phosphor_keep_main(const char *cfg_main);
+const char *phosphor_script_path(void);   // the line that puts phosphor/compat first on a script's PATH, or ""
 // [3S-ARM] main=MiSTer_3S-ARM, [Sonic Mania] main=MiSTer_SonicMania: Phosphor's own build of that Main
 // (phosphor/bin), when the game and the core being loaded are the versions it was made for; NULL: none (the main= is used as it is)
 const char *phosphor_port_main(const char *cfg_main, const char *core_path);
